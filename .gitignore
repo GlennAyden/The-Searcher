@@ -1,0 +1,29 @@
+# Backend
+backend/venv/
+backend/__pycache__/
+backend/*.db
+backend/*.sqlite
+backend/*.sqlite3
+backend/downloads/
+backend/chroma_db/
+backend/.env
+backend/.env*
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.env
+frontend/.env*
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Project Searcher specific
+.gemini/

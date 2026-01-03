@@ -1,0 +1,80 @@
+# Grand Design: The Sniper Stack
+
+**Data Miner**: `requests` (API Spy) + `trafilatura` (Cleaner)
+**Intelligence**: `MoritzLaurer/mDeBERTa-v3-base-mnli-xnli` (Sentiment Scoring)
+**Dashboard**: `Streamlit` (UI)
+**Hardware**: Local GPU Execution (CUDA)
+
+---
+
+## Milestone 1: The "Speedster" Miner (Data Pipeline)
+**Fokus**: Mendapatkan data secepat kilat tanpa browser, lalu membersihkannya.
+
+**Tech Stack**: `requests`, `trafilatura`, `json`
+
+### To-Do List (Instruksi untuk AI Coding-mu):
+- [ ] **Buat fungsi `fetch_news_api()`**: Gunakan `requests` untuk menembak endpoint API berita (hasil intipan F12 dari target web).
+- [ ] **Buat fungsi `clean_content(url)`**: Oper URL ke `trafilatura.fetch_url()` dan `trafilatura.extract()` untuk dapat teks bersih.
+- [ ] **Wajib**: Simpan hasilnya ke file `news_data.json`. Struktur JSON harus punya:
+    - `timestamp`
+    - `title`
+    - `url`
+    - `clean_text`
+
+> **Kenapa harus ada**: Fondasi data. Tanpa JSON yang rapi, model AI tidak bisa bekerja. Kita pakai API spy agar datanya real-time mendahului pembaca website biasa.
+
+---
+
+## Milestone 2: The "Flash" Analyst (GPU Inference)
+**Fokus**: Mengganti Ollama dengan `mDeBERTa` untuk analisis sentimen berkecepatan tinggi.
+
+**Tech Stack**: `transformers`, `torch` (PyTorch)
+
+### To-Do List:
+- [ ] **GPU Check**: Pastikan script mendeteksi CUDA (RTX 2050).
+- [ ] **Pipeline Setup**: Load model `MoritzLaurer/mDeBERTa-v3-base-mnli-xnli` menggunakan `pipeline("zero-shot-classification")`.
+- [ ] **Labeling Logic**: Definisikan label kandidat: `["Positif Bullish", "Negatif Bearish", "Netral"]`.
+- [ ] **Processing**: Buat script yang membaca `news_data.json`, memberi skor sentimen ke setiap berita, lalu menyimpan ulang hasilnya ke `analyzed_news.json` (tambah kolom `score` dan `label`).
+
+> **Kenapa harus ada**: Ini inti mesinnya. Dengan `mDeBERTa`, kamu bisa memproses 50 berita dalam 1 detik. Jauh lebih efisien daripada Ollama.
+
+---
+
+## Milestone 3: The "Cockpit" (Streamlit Dashboard)
+**Fokus**: Visualisasi data angka menjadi keputusan trading.
+
+**Tech Stack**: `streamlit`, `pandas`
+
+### To-Do List:
+- [ ] **Layout Utama**: Bagi layar jadi 2 kolom. Kiri: Metrik Pasar (Avg Sentiment), Kanan: Tabel Berita Terbaru.
+- [ ] **Color Coding**: Jika skor > 0.5 warna **Hijau (Bullish)**, jika < -0.5 warna **Merah (Bearish)**.
+- [ ] **Filter**: Tambahkan slider atau dropdown untuk memfilter berita: "Tampilkan hanya yang Sangat Bullish".
+
+> **Kenapa harus ada**: Glance Value. Kamu tidak trading dengan membaca JSON. Kamu trading dengan melihat "Warna" pasar.
+
+---
+
+## Milestone 4: The "Edge" (Correlation Engine)
+**Fokus**: Validasi sentimen dengan pergerakan harga asli.
+
+**Tech Stack**: `yfinance`, `plotly` (untuk grafik interaktif di Streamlit)
+
+### To-Do List:
+- [ ] **Price Fetcher**: Tarik harga saham terkait (misal BBRI) 1 hari terakhir interval 5 menit via `yfinance`.
+- [ ] **Dual Chart**: Plot grafik harga (Candlestick) di atas, dan grafik batang Sentimen Berita di bawahnya (dengan sumbu waktu yang sama).
+- [ ] **Anomaly Marker**: (Advanced) Minta AI coding assistant-mu membuat logika: "Tandai titik di mana Harga Turun tapi Sentimen Hijau Tebal".
+
+> **Kenapa harus ada**: Menemukan Divergensi. Inilah momen "Bandar Akumulasi" atau "Retail Panic" yang tidak terlihat di chart biasa.
+
+---
+
+## Milestone 5: The "Autopilot" (Real-time Loop)
+**Fokus**: Menjadikannya sistem yang berjalan sendiri.
+
+**Tech Stack**: `time`, `streamlit.autorefresh`
+
+### To-Do List:
+- [ ] **Background Worker**: Gabungkan Script M1 (Miner) dan M2 (Analyst) ke dalam satu loop yang jalan tiap 10-15 menit.
+- [ ] **Auto Refresh**: Set Streamlit untuk me-reload data setiap kali file JSON berubah.
+
+> **Kenapa harus ada**: Agar kamu bisa meninggalkan laptop menyala dan hanya menengok saat ada notifikasi visual perubahan sentimen.

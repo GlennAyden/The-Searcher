@@ -1,0 +1,5 @@
+(79, 'VRNA                                                                                                ', 'Penyampaian Materi Public Expose - Tahunan', '2025-12-18T13:34:54', 'FAILED', '')
+(413, 'KRAS                                                                                                ', 'Transaksi Material Tanpa Persetujuan RUPS', '2025-12-24T10:41:23', 'COMPLETED', 'downloads\\3bb7c6201f_51066aabf0.pdf')
+(414, 'KRAS                                                                                                ', 'Transaksi Material Tanpa Persetujuan RUPS', '2025-12-24T10:41:23', 'COMPLETED', 'downloads\\347d55293c_f3a56db422.pdf')
+(415, 'KRAS                                                                                                ', 'Transaksi Material', '2025-12-23T19:26:41', 'COMPLETED', 'downloads\\a4d9c64bfd_2b2dcba0f8.pdf')
+(416, 'KRAS                                                                                                ', 'Transaksi Material', '2025-12-23T19:26:41', 'COMPLETED', 'downloads\\afb261b1aa_0ba737e004.pdf')

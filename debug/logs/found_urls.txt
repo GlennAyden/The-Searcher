@@ -1,0 +1,7 @@
+GET https://exodus.stockbit.com/paywall/eligibility/check?company=BBCA&features=PAYWALL_FEATURE_ORDERBOOK&features=PAYWALL_FEATURE_RUNNING_TRADE
+GET https://exodus.stockbit.com/order-trade/running-trade?sort=DESC&limit=50&order_by=RUNNING_TRADE_ORDER_BY_TIME&symbols[]=BBCA
+GET https://exodus.stockbit.com/order-trade/running-trade?sort=DESC&limit=50&order_by=RUNNING_TRADE_ORDER_BY_TIME&symbols[]=BBCA
+GET https://exodus.stockbit.com/order-trade/trade-book/chart?symbol=BBCA&time_interval=1m
+GET https://exodus.stockbit.com/order-trade/running-trade/chart/BBCA?period=RT_PERIOD_LAST_1_DAY
+GET https://exodus.stockbit.com/order-trade/running-trade/chart/BBCA?period=RT_PERIOD_LAST_1_DAY&broker_code=XL&broker_code=SQ&broker_code=YU&broker_code=DX&broker_code=BK
+GET https://exodus.stockbit.com/order-trade/trade-book/chart?symbol=BBCA&time_interval=1m
