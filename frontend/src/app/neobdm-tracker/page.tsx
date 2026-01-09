@@ -930,8 +930,11 @@ export default function NeoBDMTrackerPage() {
                                     <tr key={idx} className="hover:bg-zinc-800/40 transition-colors h-[32px]">
                                         <td className="px-4 py-1.5 border-r border-zinc-800 text-zinc-400 font-mono">{row.scraped_at}</td>
                                         <td className="px-4 py-1.5 border-r border-zinc-800 text-zinc-200 font-bold">{row.price?.toLocaleString()}</td>
-                                        <td className={cn("px-4 py-1.5 border-r border-zinc-800 font-bold", row.pct_change >= 0 ? "text-emerald-400" : "text-red-400")}>
-                                            {row.pct_change > 0 && '+'}{row.pct_change?.toFixed(2)}%
+                                        <td className={cn("px-4 py-1.5 border-r border-zinc-800 font-bold", (row.change || 0) >= 0 ? "text-emerald-400" : "text-red-400")}>
+                                            <div className="flex flex-col leading-tight">
+                                                <span>{(row.change || 0) > 0 && '+'}{row.change?.toLocaleString()}</span>
+                                                <span className="text-[9px] opacity-70">({(row.pct_change || 0) > 0 && '+'}{row.pct_change?.toFixed(2)}%)</span>
+                                            </div>
                                         </td>
                                         <td className={cn("px-4 py-1.5 border-r border-zinc-800 font-bold", row.activeFlow >= 0 ? "text-emerald-400" : "text-red-400")}>
                                             {row.activeFlow?.toLocaleString()} <span className="text-[8px] opacity-40">B</span>

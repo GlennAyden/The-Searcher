@@ -543,22 +543,38 @@ class NeoBDMRepository(BaseRepository):
                 trend = "DISTRIBUTING"
             
             # 6. Add net_flow and trend to each record
+            # 6. Add net_flow and trend to each record
             for i in range(len(history_list)):
                 record = history_list[i]
                 record['net_flow'] = net_flow
                 record['trend'] = trend
                 
-                # 6.1 Fallback Change Calculation: If pct_change is zero/missing, calculate from price history
+                # 6.1 Calculate Price Change (Nominal & Percentage)
                 # We need the next record (which is older because history_list is sorted DESC)
                 if i < len(history_list) - 1:
                     curr_price = record.get('price', 0)
                     prev_price = history_list[i+1].get('price', 0)
                     
-                    # If current record has no pct_change but we have prices, calculate it
-                    if (not record.get('pct_change') or record['pct_change'] == 0) and curr_price and prev_price:
-                        calc_change = ((curr_price - prev_price) / prev_price) * 100
-                        record['pct_change'] = round(calc_change, 2)
-                        record['change'] = round(calc_change, 2)
+                    if curr_price and prev_price:
+                        # Nominal Change (Price - PrevPrice)
+                        nominal_change = curr_price - prev_price
+                        record['change'] = nominal_change # Fix: Now storing nominal change
+                        
+                        # Percentage Change (if missing or 0)
+                        if not record.get('pct_change') or record['pct_change'] == 0:
+                            calc_pct = (nominal_change / prev_price) * 100
+                            record['pct_change'] = round(calc_pct, 2)
+                    elif record.get('change'): 
+                         # If we can't calculate but have 'change' from DB (which was pct_1d), 
+                         # we might want to keep it or zero it if we strictly want nominal.
+                         # Since DB stores pct_1d as 'change' initially in line 519, we should probably NULL it 
+                         # if we can't verify it's nominal? 
+                         # Actually, line 519 maps 'pct_1d' to 'change'. That is WRONG semantic. 
+                         # We should rely on calculation. If no prev price, change is 0.
+                         record['change'] = 0.0
+                else:
+                    # Last record (oldest) has no previous price to compare
+                    record['change'] = 0.0
             
             # 7. Return limited results
             return history_list[:limit]
