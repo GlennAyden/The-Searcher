@@ -10,7 +10,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("StockbitScraper")
 
 class StockbitScraper:
-    def __init__(self, storage_state_path="stockbit_storage.json", ticker="BBCA"):
+    def __init__(self, storage_state_path=None, ticker="BBCA"):
+        if storage_state_path is None:
+            # Default to backend/stockbit_storage.json relative to this file
+            # content is in backend/modules/scraper_stockbit.py -> up one level is backend/
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            storage_state_path = os.path.join(base_dir, "stockbit_storage.json")
+            
         self.storage_state_path = storage_state_path
         self.ticker = ticker.upper()
         self.base_url = "https://stockbit.com"
@@ -114,6 +120,9 @@ class StockbitScraper:
 
 # Quick test script if run as main
 if __name__ == "__main__":
+    import sys
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     async def test():
         scraper = StockbitScraper(ticker="BBCA")
         if await scraper.start(headless=True):

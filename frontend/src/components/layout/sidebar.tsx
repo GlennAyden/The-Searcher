@@ -11,18 +11,13 @@ import {
     TrendingUp,
     ChevronLeft,
     ChevronRight,
-    Filter,
     Activity,
     LineChart,
     BarChart3,
-    PieChart,
-    Zap,
     History,
-    Search
+    Zap
 } from 'lucide-react';
 import { ScraperControl } from './scraper-control';
-import { api } from '@/services/api';
-import { useFilter } from '@/context/filter-context';
 
 const navGroups = [
     {
@@ -37,6 +32,7 @@ const navGroups = [
         items: [
             { icon: BarChart3, label: 'Market Summary', href: '/neobdm-summary' },
             { icon: LineChart, label: 'Flow Tracker', href: '/neobdm-tracker' },
+            { icon: Zap, label: 'Forecasting', href: '/forecasting' },
         ]
     },
     {
@@ -57,26 +53,6 @@ const navGroups = [
 export const Sidebar = () => {
     const [isCollapsed, setIsCollapsed] = React.useState(false);
     const pathname = usePathname();
-    const searchParams = useSearchParams();
-    const currentTab = searchParams.get('tab');
-    const { ticker, setTicker, dateRange, setDateRange } = useFilter();
-
-    // Dynamic Tickers state
-    const [tickers, setTickers] = React.useState<string[]>(['All']);
-
-    React.useEffect(() => {
-        const loadTickers = async () => {
-            try {
-                const list = await api.getTickers();
-                // Ensure 'All' is always first and unique
-                const uniqueTickers = Array.from(new Set(['All', ...list]));
-                setTickers(uniqueTickers);
-            } catch (error) {
-                console.error("Failed to load tickers for sidebar:", error);
-            }
-        };
-        loadTickers();
-    }, []);
 
     return (
         <div className={cn(
@@ -100,58 +76,6 @@ export const Sidebar = () => {
                 )}
             </div>
 
-            {/* Global Filters */}
-            {!isCollapsed ? (
-                <div className="space-y-4 px-2 py-3 bg-zinc-900/40 rounded-xl border border-zinc-800/50 animate-in fade-in slide-in-from-left-2 duration-300">
-                    <div className="flex items-center gap-2 text-zinc-400 text-[9px] font-black uppercase tracking-[0.2em]">
-                        <Filter className="w-3 h-3 text-blue-500" />
-                        Market Scope
-                    </div>
-
-                    <div className="space-y-1.5">
-                        <select
-                            value={ticker}
-                            onChange={(e) => setTicker(e.target.value)}
-                            className="w-full bg-[#18181b] border border-zinc-800 text-zinc-200 text-xs font-bold rounded-lg p-2.5 outline-none focus:ring-1 focus:ring-blue-500/50 appearance-none cursor-pointer"
-                        >
-                            {tickers.map(t => (
-                                <option key={t} value={t}>{t}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                            <label className="text-[9px] text-zinc-500 font-bold uppercase ml-1">From</label>
-                            <input
-                                type="date"
-                                value={dateRange.start}
-                                onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                                className="w-full bg-[#18181b] border border-zinc-800 text-zinc-200 text-[10px] rounded-lg p-2 outline-none [color-scheme:dark] cursor-pointer"
-                            />
-                        </div>
-                        <div className="space-y-1">
-                            <label className="text-[9px] text-zinc-500 font-bold uppercase ml-1">To</label>
-                            <input
-                                type="date"
-                                value={dateRange.end}
-                                onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                                className="w-full bg-[#18181b] border border-zinc-800 text-zinc-200 text-[10px] rounded-lg p-2 outline-none [color-scheme:dark] cursor-pointer"
-                            />
-                        </div>
-                    </div>
-                </div>
-            ) : (
-                <div className="px-1 py-2 flex justify-center">
-                    <button
-                        onClick={() => setIsCollapsed(false)}
-                        className="p-2.5 bg-zinc-900 rounded-xl text-zinc-500 hover:text-blue-400 border border-zinc-800 transition-all active:scale-95"
-                        title="Expand Filters"
-                    >
-                        <Filter className="w-4 h-4" />
-                    </button>
-                </div>
-            )}
 
             <div className="flex-1 flex flex-col gap-6 overflow-y-auto overflow-x-hidden scrollbar-none px-1">
                 {navGroups.map((group) => (

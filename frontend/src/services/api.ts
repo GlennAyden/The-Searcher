@@ -21,6 +21,7 @@ import { newsApi, NewsItem } from './api/news';
 import { disclosuresApi, Disclosure } from './api/disclosures';
 import { neobdmApi } from './api/neobdm';
 import { scrapersApi } from './api/scrapers';
+import { forecastingApi } from './api/forecasting';
 
 // Re-export types for backward compatibility
 export type { NewsItem, Disclosure };
@@ -68,5 +69,6 @@ export {
     newsApi,
     disclosuresApi,
     neobdmApi,
-    scrapersApi
+    scrapersApi,
+    forecastingApi
 };

@@ -19,7 +19,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body className={`${inter.className} bg-zinc-950 text-zinc-100 overflow-hidden`}>
+      <body className={`${inter.className} bg-zinc-950 text-zinc-100 overflow-hidden`} suppressHydrationWarning>
         <FilterProvider>
           <div className="flex h-screen">
             <Sidebar />

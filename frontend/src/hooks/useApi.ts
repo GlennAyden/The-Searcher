@@ -16,7 +16,7 @@ export interface UseApiReturn<T, Args extends any[]> {
     data: T | null;
     loading: boolean;
     error: string | null;
-    execute: (...args: Args) => Promise<void>;
+    execute: (...args: Args) => Promise<T | null>;
     reset: () => void;
 }
 
@@ -49,17 +49,21 @@ export function useApi<T, Args extends any[]>(
         error: null,
     });
 
-    const execute = useCallback(async (...args: Args) => {
+    const execute = useCallback(async (...args: Args): Promise<T | null> => {
         setState(prev => ({ ...prev, loading: true, error: null }));
 
         try {
             const result = await apiFunction(...args);
             setState({ data: result, loading: false, error: null });
             options?.onSuccess?.(result);
+            return result;
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'An error occurred';
             setState({ data: null, loading: false, error: errorMessage });
             options?.onError?.(err instanceof Error ? err : new Error(errorMessage));
+            throw err; // Re-throw to let caller handle if needed, or return null? Better re-throw or return null.
+            // Let's return null on error so await logic doesn't crash if they don't catch
+            return null;
         }
     }, [apiFunction, options]);
 

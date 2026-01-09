@@ -16,8 +16,20 @@ export interface NeoBDMHistory {
     history: any[];
 }
 
+export interface SignalItem {
+    symbol: string;
+    signal_score: number;
+    signal_strength: 'VERY_STRONG' | 'STRONG' | 'MODERATE' | 'WEAK' | 'AVOID';
+    momentum_icon: string;
+    momentum_status: string;
+    flow: number;
+    price: number;
+    change: number;
+    [key: string]: any;
+}
+
 export interface HotSignal {
-    signals: any[];
+    signals: SignalItem[];
 }
 
 /**
@@ -76,7 +88,13 @@ export const neobdmApi = {
         period: string = 'c',
         limit: number = 30
     ): Promise<NeoBDMHistory> => {
-        const params = buildParams({ symbol, method, period, limit: limit.toString() });
+        const params = buildParams({
+            symbol,
+            method,
+            period,
+            limit: limit.toString(),
+            _t: Date.now().toString() // Cache busting
+        });
         const response = await fetch(`${API_BASE_URL}/api/neobdm-history?${params}`);
         return await response.json();
     },

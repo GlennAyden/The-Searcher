@@ -1,6 +1,7 @@
 """NeoBDM repository for market maker and fund flow analysis."""
 import pandas as pd
 import json
+import re
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from .connection import BaseRepository
@@ -9,6 +10,41 @@ from .connection import BaseRepository
 class NeoBDMRepository(BaseRepository):
     """Repository for NeoBDM market maker and fund flow data."""
     
+    def _calculate_method_confluence(self, symbol: str, scraped_at: str) -> tuple:
+        """
+        New Logic: Multi-Method Confluence Analysis.
+        Cross-references flows from different methods (MM, Non-Retail, Foreign).
+        """
+        conn = self._get_conn()
+        try:
+            query = """
+            SELECT method, d_0 
+            FROM neobdm_records 
+            WHERE symbol = ? AND scraped_at = ?
+            """
+            cursor = conn.cursor()
+            cursor.execute(query, (symbol, scraped_at))
+            rows = cursor.fetchall()
+            
+            flows = {row[0]: self._parse_numeric(row[1]) for row in rows}
+            
+            confluence_score = 0
+            positive_methods = [m for m, f in flows.items() if f > 0]
+            
+            if len(positive_methods) >= 3:
+                confluence_score = 50  # TRIPLE THREAT: All methods agree
+                status = "TRIPLE_CONFLUENCE"
+            elif len(positive_methods) == 2:
+                confluence_score = 25  # DOUBLE CONFIRMATION
+                status = "DOUBLE_CONFLUENCE"
+            else:
+                confluence_score = 0
+                status = "SINGLE_METHOD"
+                
+            return confluence_score, status, positive_methods
+        finally:
+            conn.close()
+
     def save_neobdm_summary(self, method: str, period: str, data_list: List[Dict]):
         """
         Save a neobdm summary scrape as a JSON blob (legacy format).
@@ -61,19 +97,36 @@ class NeoBDMRepository(BaseRepository):
             
             rows_to_insert = []
             for item in data_list:
+                # Backend safety gate: Clean watchlist junk from symbol
+                raw_symbol = item.get('symbol', '') or ''
+                clean_symbol = re.sub(r'\|?Add\s+.*?to\s+Watchlist', '', raw_symbol, flags=re.IGNORECASE)
+                clean_symbol = re.sub(r'\|?Add\s+.*?to\s+Watchlist', '', raw_symbol, flags=re.IGNORECASE)
+                clean_symbol = re.sub(r'\|?Remove\s+from\s+Watchlist', '', clean_symbol, flags=re.IGNORECASE)
+                # Clean Star Emojis and other junk
+                clean_symbol = clean_symbol.replace('★', '').replace('⭐', '').strip('| ').strip()
+                
+                # Function to get value regardless of case
+                def get_val(key_lower):
+                    return item.get(key_lower) or item.get(key_lower.upper())
+
                 row = (
                     scraped_at, method, period, 
-                    item.get('symbol'), item.get('pinky'), item.get('crossing'), item.get('likuid'),
-                    item.get('w-4') or item.get('wn-4'), item.get('w-3') or item.get('wn-3'),
-                    item.get('w-2') or item.get('wn-2'), item.get('w-1') or item.get('wn-1'),
-                    item.get('d-4') or item.get('dn-4'), item.get('d-3') or item.get('dn-3'),
-                    item.get('d-2') or item.get('dn-2'), item.get('d-0') or item.get('dn-0'),
-                    item.get('%1d'),
-                    item.get('c-20') or item.get('cn-20'), item.get('c-10') or item.get('cn-10'),
-                    item.get('c-5') or item.get('cn-5'), item.get('c-3') or item.get('cn-3'),
-                    item.get('%3d'), item.get('%5d'), item.get('%10d'), item.get('%20d'),
-                    item.get('price'), item.get('>ma5'), item.get('>ma10'), item.get('>ma20'),
-                    item.get('>ma50'), item.get('>ma100'), item.get('unusual')
+                    clean_symbol, get_val('pinky'), get_val('crossing'), get_val('likuid'),
+                    get_val('w-4') or get_val('wn-4'), get_val('w-3') or get_val('wn-3'),
+                    get_val('w-2') or get_val('wn-2'), get_val('w-1') or get_val('wn-1'),
+                    get_val('d-4') or get_val('dn-4'), get_val('d-3') or get_val('dn-3'),
+                    get_val('d-2') or get_val('dn-2'), get_val('d-0') or get_val('dn-0'),
+                    get_val('%1d'),
+                    get_val('c-20') or get_val('cn-20'), get_val('c-10') or get_val('cn-10'),
+                    get_val('c-5') or get_val('cn-5'), get_val('c-3') or get_val('cn-3'),
+                    get_val('%3d'), get_val('%5d'), get_val('%10d'), get_val('%20d'),
+                    get_val('price') or item.get('P'), 
+                    get_val('ma5') or item.get('>ma5'), 
+                    get_val('ma10') or item.get('>ma10'), 
+                    get_val('ma20') or item.get('>ma20'),
+                    get_val('ma50') or item.get('>ma50'), 
+                    get_val('ma100') or item.get('>ma100'), 
+                    get_val('unusual')
                 )
                 rows_to_insert.append(row)
             
@@ -247,10 +300,111 @@ class NeoBDMRepository(BaseRepository):
             return 0.0
         
         try:
-            val_str = str(value).replace(',', '').replace('B', '').strip()
+            val_str = str(value).split('|')[0].replace(',', '').replace('B', '').strip()
             return float(val_str) if val_str else 0.0
         except (ValueError, AttributeError):
             return 0.0
+    
+    def _get_historical_flow_baseline(self, symbol: str, current_scraped_at: str) -> tuple:
+        """
+        Calculate historical flow baseline for anomaly detection.
+        Returns (mean, std_dev) based on last 30 days of d_0 flows.
+        """
+        conn = self._get_conn()
+        try:
+            query = """
+            SELECT d_0 
+            FROM neobdm_records 
+            WHERE symbol = ? 
+              AND method = 'm' 
+              AND period = 'c'
+              AND scraped_at < ?
+            ORDER BY scraped_at DESC 
+            LIMIT 30
+            """
+            cursor = conn.cursor()
+            cursor.execute(query, (symbol, current_scraped_at))
+            rows = cursor.fetchall()
+            
+            if len(rows) < 5:  # Need minimum 5 data points
+                return 0.0, 0.0
+            
+            flows = [self._parse_numeric(row[0]) for row in rows]
+            
+            # Calculate statistics
+            mean_flow = sum(flows) / len(flows)
+            variance = sum((x - mean_flow) ** 2 for x in flows) / len(flows)
+            std_dev = variance ** 0.5
+            
+            return mean_flow, std_dev
+        finally:
+            conn.close()
+    
+    def _calculate_price_multiplier(self, price: float) -> float:
+        """
+        Calculate price-based adjustment multiplier.
+        Lower price = higher multiplier (likely smaller market cap).
+        """
+        if price < 100:
+            return 5.0    # Gorengan / Lapis 3
+        elif price < 500:
+            return 2.5    # Lapis 2
+        elif price < 2000:
+            return 1.0    # Lapis 1 bawah
+        else:
+            return 0.5    # Blue Chips
+    
+    def _calculate_relative_flow_score(self, symbol: str, current_flow: float, 
+                                       price: float, scraped_at: str) -> tuple:
+        """
+        Hybrid Relative Flow Scoring.
+        
+        Combines:
+        1. Historical Z-Score (Statistical Anomaly Detection)
+        2. Price-Based Multiplier (Market Cap Proxy)
+        
+        Returns:
+            (relative_score, status, z_score)
+        """
+        # Layer 1: Historical Anomaly Detection
+        mean_flow, std_dev = self._get_historical_flow_baseline(symbol, scraped_at)
+        
+        if std_dev == 0 or mean_flow == 0:
+            # Not enough historical data or no variance
+            z_score = 0
+            base_score = 0
+            status = "INSUFFICIENT_DATA"
+        else:
+            # Calculate Z-Score
+            z_score = (current_flow - mean_flow) / std_dev
+            
+            # Scoring based on Z-Score
+            if z_score > 3.0:
+                base_score = 50
+                status = "EXTREME_ANOMALY"
+            elif z_score > 2.0:
+                base_score = 30
+                status = "STRONG_ANOMALY"
+            elif z_score > 1.0:
+                base_score = 15
+                status = "MODERATE_ANOMALY"
+            elif z_score > -1.0:
+                base_score = 0
+                status = "NORMAL"
+            elif z_score > -2.0:
+                base_score = -15
+                status = "WEAK_FLOW"
+            else:
+                base_score = -30
+                status = "DISTRIBUTION_ANOMALY"
+        
+        # Layer 2: Price Adjustment
+        price_multiplier = self._calculate_price_multiplier(price)
+        
+        # Final Relative Score
+        relative_score = int(base_score * price_multiplier)
+        
+        return relative_score, status, round(z_score, 2)
     
     def get_neobdm_history(
         self,
@@ -285,14 +439,15 @@ class NeoBDMRepository(BaseRepository):
                    d_0, d_2, d_3, d_4,
                    w_1, w_2,
                    c_3, c_5, c_10, c_20,
-                   price, pct_1d
+                   price, pct_1d, period
             FROM neobdm_records 
-            WHERE (UPPER(symbol) = UPPER(?) OR UPPER(symbol) LIKE '%' || UPPER(?))
-            AND method = ? AND period = ?
-            ORDER BY scraped_at DESC
+            WHERE UPPER(symbol) = UPPER(?)
+            AND (method = ? AND (period = ? OR period = 'd'))
+            ORDER BY scraped_at DESC, period ASC
             LIMIT ?
             """
-            df = pd.read_sql(query, conn, params=(symbol, symbol, method, period, limit * 2))
+            # Fetch loose limit to handle duplicates
+            df = pd.read_sql(query, conn, params=(symbol, method, period, limit * 4))
             
             if df.empty:
                 return []
@@ -300,8 +455,25 @@ class NeoBDMRepository(BaseRepository):
             # 2. Process each record and decompose flows
             history_dict = {}  # Key: date, Value: data
             
+            # Sort order in SQL (period ASC) means 'c' comes before 'd'? 
+            # No, 'c' < 'd'. So 'c' is first.
+            # We iterate and assign. If duplicate date comes later (e.g. 'd' after 'c'), does it overwrite?
+            # We want 'c' to win.
+            # If we want 'c' to win, we should process 'd' first then 'c', OR check if exists.
+            
+            # Let's handle deduplication explicitly
+            # Scraped_at DESC means typically newest date first. 
+            # Within same date, period ASC means 'c' first, 'd' second.
+            
             for _, row in df.iterrows():
                 scraped_date = row['scraped_at'][:10]  # Extract date part
+                
+                # If date already exists, check if we should overwrite
+                # We prefer the requested 'period' (usually 'c').
+                # Since SQL sorts period ASC ('c' then 'd'), 'c' comes first.
+                # So if we see a duplicate date from 'd', we SKIP it.
+                if scraped_date in history_dict:
+                    continue
                 
                 # Parse cumulative values
                 c3 = self._parse_numeric(row['c_3'])
@@ -331,15 +503,20 @@ class NeoBDMRepository(BaseRepository):
                 # Store decomposed data
                 if scraped_date not in history_dict:
                     history_dict[scraped_date] = {
-                        'date': scraped_date,
+                        'scraped_at': scraped_date,  # Match frontend key
+                        'date': scraped_date,        # Keep for compatibility
                         'flow_d0': d0,
                         'flow_d2': d2,
-                        'flow_avg': flow_estimate,
-                        'c_3': c3,
-                        'c_5': c5,
-                        'c_10': c10,
+                        'flow_w1': self._parse_numeric(row['w_1']),
+                        'flow_c3': c3,
+                        'flow_c5': c5,
+                        'flow_c10': c10,
+                        'flow_c20': c20,
+                        'flow': flow_estimate,      # Generic flow field
+                        'activeFlow': flow_estimate, # Extra compatibility
                         'price': self._parse_numeric(row['price']),
-                        'change': self._parse_numeric(row['pct_1d']),
+                        'pct_change': self._parse_numeric(row['pct_1d']), # Match frontend key
+                        'change': self._parse_numeric(row['pct_1d']),     # Keep for compatibility
                         'pinky': row['pinky'] if row['pinky'] not in ('x', '0', '') else None,
                         'crossing': row['crossing'] if row['crossing'] not in ('x', '0', '') else None,
                         'unusual': row['unusual'] if row['unusual'] not in ('x', '0', '') else None
@@ -366,9 +543,22 @@ class NeoBDMRepository(BaseRepository):
                 trend = "DISTRIBUTING"
             
             # 6. Add net_flow and trend to each record
-            for record in history_list:
+            for i in range(len(history_list)):
+                record = history_list[i]
                 record['net_flow'] = net_flow
                 record['trend'] = trend
+                
+                # 6.1 Fallback Change Calculation: If pct_change is zero/missing, calculate from price history
+                # We need the next record (which is older because history_list is sorted DESC)
+                if i < len(history_list) - 1:
+                    curr_price = record.get('price', 0)
+                    prev_price = history_list[i+1].get('price', 0)
+                    
+                    # If current record has no pct_change but we have prices, calculate it
+                    if (not record.get('pct_change') or record['pct_change'] == 0) and curr_price and prev_price:
+                        calc_change = ((curr_price - prev_price) / prev_price) * 100
+                        record['pct_change'] = round(calc_change, 2)
+                        record['change'] = round(calc_change, 2)
             
             # 7. Return limited results
             return history_list[:limit]
@@ -411,7 +601,7 @@ class NeoBDMRepository(BaseRepository):
             return 0.0
         
         try:
-            val_str = str(value).replace(',', '').replace('B', '').strip()
+            val_str = str(value).split('|')[0].replace(',', '').replace('B', '').strip()
             return float(val_str) if val_str else 0.0
         except (ValueError, AttributeError):
             return 0.0
@@ -870,6 +1060,26 @@ class NeoBDMRepository(BaseRepository):
         pattern_score, patterns = self._detect_patterns(record, momentum_details)
         score += pattern_score
         
+        # 10. NEW: Multi-Method Confluence Bonus
+        confluence_score, confluence_status, confluence_methods = self._calculate_method_confluence(
+            record['symbol'], record['scraped_at']
+        )
+        score += confluence_score
+        
+        # 11. NEW: Relative Flow Score (Size Bias Correction)
+        try:
+            price = self._parse_numeric(record.get('price', 0))
+            scraped_at = record.get('scraped_at', '')
+            relative_score, relative_status, z_score = self._calculate_relative_flow_score(
+                record['symbol'], flow, price, scraped_at
+            )
+            score += relative_score
+        except Exception as e:
+            # Fallback if relative scoring fails
+            relative_score = 0
+            relative_status = "ERROR"
+            z_score = 0.0
+        
         # 9. Determine Strength Label (Final)
         if score >= 150:
             strength = "VERY_STRONG"
@@ -883,7 +1093,8 @@ class NeoBDMRepository(BaseRepository):
             strength = "AVOID"
         
         return (score, strength, alignment_status, alignment_details,
-                momentum_status, momentum_details, warning_status, warnings, patterns)
+                momentum_status, momentum_details, warning_status, warnings, patterns,
+                confluence_status, confluence_methods, relative_score, relative_status, z_score)
     
     def get_latest_hot_signals(self) -> List[Dict]:
         """
@@ -900,11 +1111,11 @@ class NeoBDMRepository(BaseRepository):
         """
         conn = self._get_conn()
         try:
-            # 1. Get latest scrape timestamp
+            # 1. Get latest scrape timestamp for DAILY period (has d_0 and pct_1d data)
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT MAX(scraped_at) FROM neobdm_records 
-                WHERE method='m' AND period='c'
+                WHERE method='m' AND period='d'
             """)
             latest = cursor.fetchone()[0]
             
@@ -932,7 +1143,7 @@ class NeoBDMRepository(BaseRepository):
                    MAX(price) as price, 
                    MAX(pct_1d) as pct_1d
             FROM neobdm_records
-            WHERE scraped_at = ? AND method = 'm' AND period = 'c'
+            WHERE scraped_at = ? AND method = 'm' AND period = 'd'
             GROUP BY symbol
             """
             df = pd.read_sql(query, conn, params=(latest,))
@@ -948,22 +1159,29 @@ class NeoBDMRepository(BaseRepository):
                 if not self._is_eligible_for_scoring(record):
                     continue
                 
-                # Calculate complete score with all 4 phases
+                # Add scraped_at to record for relative scoring
+                record_dict = record.to_dict()
+                record_dict['scraped_at'] = latest
+                
+                # Calculate complete score with all phases + Confluence + Relative
                 (score, strength, alignment_status, alignment_details,
                  momentum_status, momentum_details, warning_status,
-                 warnings, patterns) = self._calculate_signal_score(record)
+                 warnings, patterns, confluence_status, confluence_methods,
+                 relative_score, relative_status, z_score) = self._calculate_signal_score(record_dict)
                 
                 # Only include positive or near-positive scores
                 if score >= 0:
+                    # Sanitized symbol (remove stars)
+                    clean_symbol = record["symbol"].replace('★', '').replace('⭐', '').strip()
                     scored_results.append({
                         # Basic fields
-                        "symbol": record["symbol"],
+                        "symbol": clean_symbol,
                         "pinky": record["pinky"] if record["pinky"] not in ('x','0','') else None,
                         "crossing": record["crossing"] if record["crossing"] not in ('x','0','') else None,
                         "unusual": record["unusual"] if record["unusual"] not in ('x','0','') else None,
-                        "flow": record["d_0"],
-                        "price": record["price"],
-                        "change": record["pct_1d"],
+                        "flow": self._parse_numeric(record["d_0"]),
+                        "price": self._parse_numeric(record["price"]),
+                        "change": self._parse_numeric(record["pct_1d"]),
                         
                         # Scoring fields
                         "signal_score": int(score),
@@ -986,7 +1204,16 @@ class NeoBDMRepository(BaseRepository):
                         
                         # Phase 4: Pattern Recognition
                         "patterns": [{"name": p['name'], "display": p['display'], "icon": p['icon'], "score": p['score']} for p in patterns],
-                        "pattern_count": len(patterns)
+                        "pattern_count": len(patterns),
+                        
+                        # NEW: Confluence Data
+                        "confluence_status": confluence_status,
+                        "confluence_methods": confluence_methods,
+                        
+                        # NEW: Relative Flow Scoring
+                        "relative_score": relative_score,
+                        "relative_status": relative_status,
+                        "z_score": z_score
                     })
             
             # 4. Sort by score descending

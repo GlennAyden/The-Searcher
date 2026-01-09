@@ -31,7 +31,9 @@ import {
     Area
 } from 'recharts';
 import { cn } from '@/lib/utils';
+import { cleanTickerSymbol } from '@/lib/string-utils';
 import Link from 'next/link';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function NeoBDMTrackerPage() {
     const [symbol, setSymbol] = useState('BBCA');
@@ -183,7 +185,7 @@ export default function NeoBDMTrackerPage() {
             crossingVal: item.crossing,
             unusualVal: item.unusual,
             pinkyVal: item.pinky
-        }));
+        })).reverse(); // Reverse to show oldest on left, newest on right
     }, [data, flowMetric]);
 
     const getMetricLabel = (m: string) => {
@@ -369,7 +371,7 @@ export default function NeoBDMTrackerPage() {
                                 Safe Mode: Liquid Only
                             </span>
                             <span className="text-[8px] text-zinc-600">
-                                {filteredHotSignals.length} signal{filteredHotSignals.length > 1 ? 's' : ''} detected
+                                {Math.min(filteredHotSignals.length, 10)} signal{Math.min(filteredHotSignals.length, 10) > 1 ? 's' : ''} detected
                             </span>
                         </div>
 
@@ -558,199 +560,192 @@ export default function NeoBDMTrackerPage() {
                         </div>
                     )}
 
-                    {/* Signals Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-zinc-900">
-                        {filteredHotSignals.map((sig, idx) => {
-                            // Signal strength badge styling
-                            const getStrengthStyle = (strength: string) => {
-                                switch (strength) {
-                                    case 'VERY_STRONG':
-                                        return {
-                                            bg: 'bg-gradient-to-r from-emerald-500/20 to-green-500/20',
-                                            border: 'border-emerald-500/50',
-                                            text: 'text-emerald-400',
-                                            icon: '🔥',
-                                            label: 'VERY STRONG',
-                                            glow: 'shadow-emerald-500/20'
-                                        };
-                                    case 'STRONG':
-                                        return {
-                                            bg: 'bg-gradient-to-r from-blue-500/20 to-cyan-500/20',
-                                            border: 'border-blue-500/50',
-                                            text: 'text-blue-400',
-                                            icon: '⚡',
-                                            label: 'STRONG',
-                                            glow: 'shadow-blue-500/20'
-                                        };
-                                    case 'MODERATE':
-                                        return {
-                                            bg: 'bg-gradient-to-r from-yellow-500/20 to-amber-500/20',
-                                            border: 'border-yellow-500/50',
-                                            text: 'text-yellow-400',
-                                            icon: '⚠️',
-                                            label: 'MODERATE',
-                                            glow: 'shadow-yellow-500/20'
-                                        };
-                                    default:
-                                        return {
-                                            bg: 'bg-zinc-800/50',
-                                            border: 'border-zinc-700',
-                                            text: 'text-zinc-500',
-                                            icon: '⏸️',
-                                            label: 'WEAK',
-                                            glow: 'shadow-none'
-                                        };
-                                }
-                            };
+                    {/* Hot Signals Table */}
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead className="sticky top-0 z-10">
+                                <tr className="bg-gradient-to-r from-zinc-900 to-zinc-800 border-b border-zinc-700">
+                                    <th className="px-4 py-2 text-[10px] font-black uppercase tracking-wider text-zinc-400">#</th>
+                                    <th className="px-4 py-2 text-[10px] font-black uppercase tracking-wider text-zinc-400">Ticker</th>
+                                    <th className="px-4 py-2 text-[10px] font-black uppercase tracking-wider text-zinc-400 text-right">Score</th>
+                                    <th className="px-4 py-2 text-[10px] font-black uppercase tracking-wider text-zinc-400">Type Flow</th>
+                                    <th className="px-4 py-2 text-[10px] font-black uppercase tracking-wider text-zinc-400 text-right">Price</th>
+                                    <th className="px-4 py-2 text-[10px] font-black uppercase tracking-wider text-zinc-400 text-right">Flow</th>
+                                    <th className="px-4 py-2 text-[10px] font-black uppercase tracking-wider text-zinc-400 text-right">Change</th>
+                                    <th className="px-4 py-2 text-[10px] font-black uppercase tracking-wider text-zinc-400 text-center">Legend</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredHotSignals.slice(0, 10).map((sig, idx) => {
+                                    const getStrengthConfig = (strength: string) => {
+                                        switch (strength) {
+                                            case 'VERY_STRONG':
+                                                return { label: 'Prime Signal', icon: '🔥', color: 'text-emerald-400', bg: 'bg-emerald-500/10' };
+                                            case 'STRONG':
+                                                return { label: 'Strong Trend', icon: '⚡', color: 'text-blue-400', bg: 'bg-blue-500/10' };
+                                            case 'MODERATE':
+                                                return { label: 'Moderate Flow', icon: '⚠️', color: 'text-amber-400', bg: 'bg-amber-500/10' };
+                                            default:
+                                                return { label: 'Neutral', icon: '⏸️', color: 'text-zinc-500', bg: 'bg-zinc-800/10' };
+                                        }
+                                    };
 
-                            const strength = getStrengthStyle(sig.signal_strength || 'WEAK');
+                                    const config = getStrengthConfig(sig.signal_strength || 'WEAK');
+                                    const isSelected = sig.symbol === symbol;
 
-                            return (
-                                <div
-                                    key={idx}
-                                    onClick={() => setSymbol(sig.symbol)}
-                                    className={cn(
-                                        "relative cursor-pointer rounded-xl border-2 transition-all duration-300 overflow-hidden group",
-                                        "hover:shadow-2xl hover:scale-[1.02]",
-                                        strength.bg,
-                                        strength.border,
-                                        sig.symbol === symbol ? "ring-2 ring-offset-2 ring-offset-[#0a0a0c] scale-[1.02]" : "",
-                                        sig.symbol === symbol ? `ring-${strength.text.replace('text-', '')}` : ""
-                                    )}
-                                >
-                                    {/* Card Header */}
-                                    <div className={cn("px-4 py-3 border-b", strength.border)}>
-                                        <div className="flex items-start justify-between">
-                                            {/* Symbol & Strength */}
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[20px]">{strength.icon}</span>
-                                                <div>
-                                                    <div className={cn("text-[16px] font-bold tracking-tight", strength.text)}>
-                                                        {(() => {
-                                                            let cleanSymbol = String(sig.symbol || '');
-                                                            // Clean watchlist text
-                                                            cleanSymbol = cleanSymbol.replace(/\|?Add\s+\w+\s+to\s+Watchlist/gi, '').trim();
-                                                            cleanSymbol = cleanSymbol.replace(/\|?Remove\s+from\s+Watchlist/gi, '').trim();
-                                                            cleanSymbol = cleanSymbol.replace(/^\|+|\|+$/g, '').trim();
-                                                            return cleanSymbol;
-                                                        })()}
-                                                    </div>
-                                                    <div className="text-[9px] text-zinc-500 uppercase tracking-wide">
-                                                        {strength.label}
-                                                    </div>
+                                    return (
+                                        <tr
+                                            key={sig.symbol}
+                                            onClick={() => setSymbol(sig.symbol)}
+                                            className={cn(
+                                                "border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer transition-all group",
+                                                isSelected && "bg-blue-500/10 border-blue-500/20"
+                                            )}
+                                        >
+                                            {/* Rank */}
+                                            <td className="px-4 py-3 text-[11px] font-bold text-zinc-600">
+                                                {idx + 1}
+                                            </td>
+
+                                            {/* Ticker */}
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-yellow-500/50 group-hover:text-yellow-400 transition-colors">★</span>
+                                                    <span className="text-[13px] font-black text-white group-hover:text-blue-300 transition-colors">
+                                                        {cleanTickerSymbol(sig.symbol)}
+                                                    </span>
                                                 </div>
-                                            </div>
+                                            </td>
 
-                                            {/* Score Badge (Large) */}
-                                            <div className={cn(
-                                                "px-3 py-1.5 rounded-lg text-[14px] font-bold border-2",
-                                                strength.bg,
-                                                strength.border,
-                                                strength.text
-                                            )}>
-                                                {sig.signal_score}
-                                            </div>
-                                        </div>
-                                    </div>
+                                            {/* Score */}
+                                            <td className="px-4 py-3 text-right">
+                                                <span className={cn("text-[14px] font-black tabular-nums", config.color)}>
+                                                    {sig.signal_score}
+                                                </span>
+                                            </td>
 
-                                    {/* Card Body */}
-                                    <div className="px-4 py-3 space-y-3">
-                                        {/* Price & Flow Stats */}
-                                        <div className="grid grid-cols-3 gap-2">
-                                            <div>
-                                                <div className="text-[9px] text-zinc-500 uppercase mb-0.5">Price</div>
-                                                <div className="text-[12px] font-mono font-semibold text-zinc-300">
-                                                    {sig.price}
+                                            {/* Type Flow */}
+                                            <td className="px-4 py-3">
+                                                <div className={cn("inline-flex items-center gap-1.5 px-2 py-1 rounded-md", config.bg)}>
+                                                    <span className="text-[12px]">{config.icon}</span>
+                                                    <span className={cn("text-[10px] font-bold uppercase tracking-tight", config.color)}>
+                                                        {config.label}
+                                                    </span>
                                                 </div>
-                                            </div>
-                                            <div>
-                                                <div className="text-[9px] text-zinc-500 uppercase mb-0.5">Flow</div>
-                                                <div className={cn(
-                                                    "text-[12px] font-mono font-bold",
+                                            </td>
+
+                                            {/* Price */}
+                                            <td className="px-4 py-3 text-right">
+                                                <span className="text-[12px] font-bold text-zinc-300 tabular-nums">
+                                                    {sig.price?.toLocaleString()}
+                                                </span>
+                                            </td>
+
+                                            {/* Flow */}
+                                            <td className="px-4 py-3 text-right">
+                                                <span className={cn(
+                                                    "text-[12px] font-black tabular-nums",
                                                     parseFloat(sig.flow?.toString().replace(/,/g, '') || '0') >= 0 ? "text-emerald-400" : "text-red-400"
                                                 )}>
                                                     {sig.flow}B
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div className="text-[9px] text-zinc-500 uppercase mb-0.5">Change</div>
-                                                <div className={cn(
-                                                    "text-[12px] font-mono font-bold",
-                                                    parseFloat(sig.change?.toString() || '0') >= 0 ? "text-emerald-400" : "text-red-400"
+                                                </span>
+                                            </td>
+
+                                            {/* Change */}
+                                            <td className="px-4 py-3 text-right">
+                                                <span className={cn(
+                                                    "text-[12px] font-black tabular-nums",
+                                                    (sig.change || 0) >= 0 ? "text-emerald-400" : "text-red-400"
                                                 )}>
-                                                    {sig.change > 0 ? '+' : ''}{sig.change}%
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Indicators Row */}
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            {/* Markers */}
-                                            {sig.crossing && (
-                                                <span className="inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                                                    CROSSING
+                                                    {sig.change !== undefined && sig.change !== null ? (
+                                                        `${sig.change > 0 ? '+' : ''}${sig.change}%`
+                                                    ) : '0%'}
                                                 </span>
-                                            )}
-                                            {sig.unusual && (
-                                                <span className="inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded-md bg-orange-500/20 text-orange-400 border border-orange-500/30">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
-                                                    UNUSUAL
-                                                </span>
-                                            )}
+                                            </td>
 
-                                            {/* Alignment */}
-                                            {sig.alignment_label && (
-                                                <span
-                                                    className={cn(
-                                                        "text-[9px] px-2 py-0.5 rounded-md font-semibold border",
+
+                                            {/* Legend - Display ALL Scoring Components */}
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center gap-1 flex-wrap justify-start max-w-[250px]">
+                                                    {/* Timeframe Alignment Badge - ALWAYS SHOW */}
+                                                    <span className={cn(
+                                                        "text-[8px] px-1.5 py-0.5 rounded font-black uppercase border whitespace-nowrap",
                                                         sig.alignment_status === "PERFECT_ALIGNMENT" ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" :
-                                                            sig.alignment_status === "PARTIAL_ALIGNMENT" ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/30" :
-                                                                "bg-zinc-700/50 text-zinc-400 border-zinc-600"
-                                                    )}
-                                                    title={`Timeframe: ${sig.alignment_timeframes || 'None'}`}
-                                                >
-                                                    {sig.alignment_label}
-                                                </span>
-                                            )}
+                                                            sig.alignment_status === "STRONG_ALIGNMENT" ? "bg-green-500/20 text-green-400 border-green-500/30" :
+                                                                sig.alignment_status === "PARTIAL_ALIGNMENT" ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/30" :
+                                                                    "bg-zinc-700/20 text-zinc-500 border-zinc-600/30"
+                                                    )} title={`Timeframe Alignment: ${sig.alignment_status}`}>
+                                                        {sig.alignment_label || "WEAK"}
+                                                    </span>
 
-                                            {/* Momentum */}
-                                            {sig.momentum_icon && (
-                                                <span
-                                                    className={cn(
-                                                        "text-[11px] px-1.5 py-0.5",
-                                                        sig.momentum_status === "ACCELERATING" ? "animate-pulse" : ""
-                                                    )}
-                                                    title={`Momentum: ${sig.momentum_status}`}
-                                                >
-                                                    {sig.momentum_icon}
-                                                </span>
-                                            )}
+                                                    {/* Momentum Badge - ALWAYS SHOW */}
+                                                    <span className={cn(
+                                                        "text-[8px] px-1.5 py-0.5 rounded font-black uppercase border whitespace-nowrap",
+                                                        sig.momentum_status === "ACCELERATING" ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/30" :
+                                                            sig.momentum_status === "INCREASING" ? "bg-blue-500/20 text-blue-400 border-blue-500/30" :
+                                                                sig.momentum_status === "STABLE" ? "bg-slate-500/20 text-slate-400 border-slate-500/30" :
+                                                                    sig.momentum_status === "WEAKENING" ? "bg-orange-500/20 text-orange-400 border-orange-500/30" :
+                                                                        "bg-red-500/20 text-red-400 border-red-500/30"
+                                                    )} title={`Momentum: ${sig.momentum_status || 'UNKNOWN'}`}>
+                                                        {sig.momentum_icon || "⏺"}
+                                                        {sig.momentum_status === "ACCELERATING" && "ACC"}
+                                                        {sig.momentum_status === "INCREASING" && "INC"}
+                                                        {sig.momentum_status === "STABLE" && "STB"}
+                                                        {sig.momentum_status === "WEAKENING" && "WKN"}
+                                                        {sig.momentum_status === "DECLINING" && "DEC"}
+                                                        {!sig.momentum_status && "N/A"}
+                                                    </span>
 
-                                            {/* Warning */}
-                                            {sig.warning_status && sig.warning_status !== "NO_WARNINGS" && sig.warning_count > 0 && (
-                                                <span
-                                                    className={cn(
-                                                        "text-[11px] px-1.5 py-0.5",
-                                                        sig.warning_status === "HIGH_RISK" ? "animate-pulse" : ""
+                                                    {/* Confluence Badge - IF APPLICABLE */}
+                                                    {sig.confluence_status !== "SINGLE_METHOD" && (
+                                                        <span className="text-[8px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 font-black uppercase whitespace-nowrap" title={`Multi-Method: ${sig.confluence_methods?.join(', ')}`}>
+                                                            {sig.confluence_status === "TRIPLE_CONFLUENCE" ? "3M" : "2M"}
+                                                        </span>
                                                     )}
-                                                    title={sig.warnings?.map((w: any) => w.message).join(', ')}
-                                                >
-                                                    {sig.warnings && sig.warnings.length > 0 ? sig.warnings[0].icon : '⚠️'}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
 
-                                    {/* Hover Overlay */}
-                                    <div className={cn(
-                                        "absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none",
-                                        "bg-gradient-to-br from-transparent via-transparent to-white/5"
-                                    )} />
-                                </div>
-                            );
-                        })}
+                                                    {/* Relative Anomaly Badge - IF APPLICABLE */}
+                                                    {sig.relative_status && sig.relative_status !== "NORMAL" && sig.relative_status !== "INSUFFICIENT_DATA" && (
+                                                        <span className={cn(
+                                                            "text-[8px] px-1.5 py-0.5 rounded font-black uppercase border whitespace-nowrap",
+                                                            sig.relative_status === "EXTREME_ANOMALY" ? "bg-purple-500/20 text-purple-400 border-purple-500/30" :
+                                                                sig.relative_status === "STRONG_ANOMALY" ? "bg-pink-500/20 text-pink-400 border-pink-500/30" :
+                                                                    "bg-cyan-500/20 text-cyan-400 border-cyan-500/30"
+                                                        )} title={`Relative Flow Z-Score: ${sig.z_score?.toFixed(1)}`}>
+                                                            {sig.relative_status === "EXTREME_ANOMALY" && "🔥EXT"}
+                                                            {sig.relative_status === "STRONG_ANOMALY" && "⚡STR"}
+                                                            {sig.relative_status === "MODERATE_ANOMALY" && "📈MOD"}
+                                                        </span>
+                                                    )}
+
+                                                    {/* Warning Badge - IF APPLICABLE */}
+                                                    {sig.warning_status !== "NO_WARNINGS" && sig.warnings?.length > 0 && (
+                                                        <span className="text-[8px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30 font-black uppercase whitespace-nowrap" title={sig.warnings.map((w: any) => w.message).join(', ')}>
+                                                            ⚠ {sig.warnings.length}
+                                                        </span>
+                                                    )}
+
+                                                    {/* Pattern Badge - IF APPLICABLE */}
+                                                    {sig.patterns?.length > 0 && (
+                                                        <span className="text-[8px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 font-black uppercase whitespace-nowrap" title={sig.patterns.map((p: any) => p.display).join(', ')}>
+                                                            {sig.patterns[0].icon} {sig.patterns.length > 1 ? `+${sig.patterns.length - 1}` : ''}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+
+                        {filteredHotSignals.length === 0 && (
+                            <div className="py-12 text-center text-zinc-600">
+                                <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                                <p className="text-[11px]">No hot signals available</p>
+                            </div>
+                        )}
                     </div>
+
                 </div>
             )}
 
@@ -762,13 +757,7 @@ export default function NeoBDMTrackerPage() {
                         <span className="text-[10px] text-zinc-500 block uppercase font-bold tracking-widest mb-1">Active Ticker</span>
                         <div className="flex items-baseline gap-2">
                             <h2 className="text-2xl font-black text-blue-400">
-                                {(() => {
-                                    let cleanSymbol = String(symbol || '');
-                                    cleanSymbol = cleanSymbol.replace(/\|?Add\s+\w+\s+to\s+Watchlist/gi, '').trim();
-                                    cleanSymbol = cleanSymbol.replace(/\|?Remove\s+from\s+Watchlist/gi, '').trim();
-                                    cleanSymbol = cleanSymbol.replace(/^\|+|\|+$/g, '').trim();
-                                    return cleanSymbol;
-                                })()}
+                                {cleanTickerSymbol(symbol)}
                             </h2>
                             <span className="text-[10px] text-zinc-600 font-bold">{method === 'm' ? 'Market Maker' : method === 'nr' ? 'Non-Retail' : 'Foreign Flow'}</span>
                         </div>

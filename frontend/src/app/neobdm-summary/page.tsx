@@ -12,6 +12,7 @@ import {
     Calendar
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { cleanTickerSymbol } from '@/lib/string-utils';
 
 export default function NeoBDMSummaryPage() {
     const { dateRange } = useFilter();
@@ -192,6 +193,7 @@ export default function NeoBDMSummaryPage() {
 
         // 2. Sort
         if (sortConfig) {
+            // Manual sort by user
             result.sort((a, b) => {
                 const valA = a[sortConfig.key];
                 const valB = b[sortConfig.key];
@@ -210,9 +212,17 @@ export default function NeoBDMSummaryPage() {
                 if (strA > strB) return sortConfig.direction === 'asc' ? 1 : -1;
                 return 0;
             });
+        } else {
+            // Default sort: NeoBDM style (by flow descending)
+            const flowKey = period === 'd' ? 'd-0' : 'c-3';
+            result.sort((a, b) => {
+                const flowA = parseFloat(String(a[flowKey] || '0').replace(/,/g, ''));
+                const flowB = parseFloat(String(b[flowKey] || '0').replace(/,/g, ''));
+                return flowB - flowA; // Descending (highest first)
+            });
         }
         return result;
-    }, [data, filters, sortConfig]);
+    }, [data, filters, sortConfig, period]);
 
     // Pagination Logic
     const totalPages = Math.ceil(processedData.length / pageSize);
@@ -391,10 +401,7 @@ export default function NeoBDMSummaryPage() {
                                             let valStr = String(val || '');
 
                                             // Clean unwanted text patterns (Watchlist, etc.)
-                                            valStr = valStr.replace(/\|?Add\s+\w+\s+to\s+Watchlist/gi, '').trim();
-                                            valStr = valStr.replace(/\|?Remove\s+from\s+Watchlist/gi, '').trim();
-                                            // Remove leading/trailing pipe symbols
-                                            valStr = valStr.replace(/^\|+|\|+$/g, '').trim();
+                                            valStr = cleanTickerSymbol(valStr);
 
                                             const isNegative = valStr.startsWith('-');
 

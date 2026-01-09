@@ -9,6 +9,7 @@ from db.news_repository import NewsRepository
 from db.disclosure_repository import DisclosureRepository
 from db.neobdm_repository import NeoBDMRepository
 from db.running_trade_repository import RunningTradeRepository
+from db.market_metadata_repository import MarketMetadataRepository
 from typing import Optional
 
 
@@ -31,6 +32,7 @@ class DatabaseManager:
         self.disclosure_repo = DisclosureRepository(db_path)
         self.neobdm_repo = NeoBDMRepository(db_path)
         self.rt_repo = RunningTradeRepository(db_path)
+        self.market_meta_repo = MarketMetadataRepository(db_path)
     
     def _get_conn(self):
         """Get database connection (for backward compatibility)."""
@@ -99,3 +101,8 @@ class DatabaseManager:
     
     def delete_raw_trades(self, ticker, date_str):
         return self.rt_repo.delete_raw_trades(ticker, date_str)
+    
+    # Market Metadata operations - delegate to MarketMetadataRepository
+    def get_market_cap(self, symbol: str, ttl_hours: int = 24):
+        return self.market_meta_repo.get_market_cap(symbol, ttl_hours)
+

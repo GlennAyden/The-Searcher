@@ -160,6 +160,31 @@ class DatabaseConnection:
                 scrape_date TEXT
             );
         """)
+
+        # Market Analytics Cache (OHLCV Data for Forecasting)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS market_analytics_cache (
+                ticker TEXT,
+                date DATE,
+                open REAL,
+                high REAL,
+                low REAL,
+                close REAL,
+                volume REAL,
+                PRIMARY KEY (ticker, date)
+            );
+        """)
+        
+        # Market Metadata Cache (Market Cap with TTL)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS market_metadata (
+                symbol TEXT PRIMARY KEY,
+                market_cap REAL NOT NULL,
+                currency TEXT DEFAULT 'IDR',
+                cached_at DATETIME NOT NULL,
+                source TEXT DEFAULT 'yfinance'
+            );
+        """)
         
         # Safe migration for existing tables
         try:
@@ -171,5 +196,14 @@ class DatabaseConnection:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_news_ticker ON news(ticker);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_news_timestamp ON news(timestamp);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_dis_ticker ON idx_disclosures(ticker);")
+        
+        # NeoBDM Optimization Indexes
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_neobdm_rec_lookup ON neobdm_records(method, period, scraped_at);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_neobdm_rec_symbol ON neobdm_records(symbol);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_neobdm_sum_lookup ON neobdm_summaries(method, period, scraped_at);")
+        
+        # Market Metadata Indexes
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_market_meta_symbol ON market_metadata(symbol);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_market_meta_cached ON market_metadata(cached_at);")
         
         conn.commit()

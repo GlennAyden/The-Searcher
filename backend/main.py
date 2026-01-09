@@ -7,6 +7,12 @@ All endpoints are now organized into domain-specific routers.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+import sys
+import asyncio
+
+# Force ProactorEventLoop on Windows for Playwright compatibility
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 # Import all routers
 from routes.dashboard import router as dashboard_router
@@ -15,6 +21,7 @@ from routes.disclosures import router as disclosures_router
 from routes.scrapers import router as scrapers_router
 from routes.neobdm import router as neobdm_router
 from routes.running_trade import router as running_trade_router
+from routes.forecasting import router as forecasting_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -37,6 +44,13 @@ app.add_middleware(
 async def startup_event():
     """Run synchronization on server startup."""
     try:
+        # Verify Event Loop Policy
+        if sys.platform == "win32":
+            policy = asyncio.get_event_loop_policy()
+            logging.info(f"Current Event Loop Policy: {policy}")
+            loop = asyncio.get_running_loop()
+            logging.info(f"Running Event Loop: {type(loop)}")
+
         from modules.sync_utils import sync_disclosures_with_filesystem
         logger = logging.getLogger("uvicorn")
         logger.info("Starting Database-Filesystem sync...")
@@ -71,8 +85,9 @@ app.include_router(disclosures_router)
 app.include_router(scrapers_router)
 app.include_router(neobdm_router)
 app.include_router(running_trade_router)
+app.include_router(forecasting_router, prefix="/api")
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

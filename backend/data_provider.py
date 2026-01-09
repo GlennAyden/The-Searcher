@@ -192,15 +192,19 @@ class DataProvider:
             merged = pd.merge(s_df, daily_stats, left_index=True, right_on='date', how='left').fillna(0)
             
             if not merged.empty and len(merged) > 1:
-                stats["correlation"] = self._sanitize_float(merged['Close'].corr(merged['score']))
-                
-                # Rolling correlation for trend (min 3 points to show something)
-                if len(merged) >= 5:
-                    rolling_corr = merged['Close'].rolling(window=5).corr(merged['score'])
-                    stats["trends"]["correlation"] = [self._sanitize_float(x) for x in rolling_corr.tail(7).tolist()]
+                # Avoid division by zero warnings if variance is zero
+                if merged['Close'].std() > 0 and merged['score'].std() > 0:
+                    stats["correlation"] = self._sanitize_float(merged['Close'].corr(merged['score']))
+                    
+                    # Rolling correlation for trend (min 3 points to show something)
+                    if len(merged) >= 5:
+                        rolling_corr = merged['Close'].rolling(window=5).corr(merged['score'])
+                        stats["trends"]["correlation"] = [self._sanitize_float(x) for x in rolling_corr.tail(7).tolist()]
+                    else:
+                        stats["trends"]["correlation"] = [stats["correlation"]] * min(len(merged), 7)
                 else:
-                    # Fallback or simple trend
-                    stats["trends"]["correlation"] = [stats["correlation"]] * min(len(merged), 7)
+                    stats["correlation"] = 0.0
+                    stats["trends"]["correlation"] = [0.0] * min(len(merged), 7)
 
         return stats
 
@@ -271,5 +275,53 @@ class DataProvider:
             showlegend=False
         )
         return fig
+    
+    def get_market_cap(self, symbol: str) -> Optional[float]:
+        """
+        Get market cap with automatic caching (24h TTL).
+        
+        Args:
+            symbol: Stock ticker (e.g., "BBCA")
+            
+        Returns:
+            Market cap in IDR, or None if unavailable
+        """
+        return self.db_manager.get_market_cap(symbol)
+    
+    def calculate_flow_impact(self, flow_billions: float, market_cap: float) -> dict:
+        """
+        Calculate normalized flow impact metrics.
+        
+        Args:
+            flow_billions: Money flow in billions (from NeoBDM)
+            market_cap: Market cap in IDR
+            
+        Returns:
+            {
+                'flow_idr': flow dalam Rupiah,
+                'impact_pct': flow as % of market cap,
+                'impact_label': 'EXTREME', 'HIGH', 'MODERATE', 'LOW', 'MINIMAL'
+            }
+        """
+        flow_idr = flow_billions * 1_000_000_000
+        impact_pct = (flow_idr / market_cap) * 100 if market_cap > 0 else 0
+        
+        if impact_pct > 5.0:
+            label = "EXTREME"
+        elif impact_pct > 2.0:
+            label = "HIGH"
+        elif impact_pct > 1.0:
+            label = "MODERATE"
+        elif impact_pct > 0.5:
+            label = "LOW"
+        else:
+            label = "MINIMAL"
+        
+        return {
+            'flow_idr': flow_idr,
+            'impact_pct': round(impact_pct, 3),
+            'impact_label': label
+        }
 
 data_provider = DataProvider()
+

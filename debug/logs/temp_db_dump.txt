@@ -1,4 +1,0 @@
-(79, 'VRNA                                                                                                ', 'Penyampaian Materi Public Expose - Tahunan', 'FAILED', '')
-(410, 'KRAS                                                                                                ', 'Transaksi Material Tanpa Persetujuan RUPS', 'COMPLETED', 'downloads\\347d55293c_f3a56db422.pdf')
-(411, 'KRAS                                                                                                ', 'Transaksi Material', 'COMPLETED', 'downloads\\a4d9c64bfd_2b2dcba0f8.pdf')
-(412, 'KRAS                                                                                                ', 'Transaksi Material', 'COMPLETED', 'downloads\\afb261b1aa_0ba737e004.pdf')
