@@ -114,4 +114,72 @@ export const neobdmApi = {
         const response = await fetch(`${API_BASE_URL}/api/neobdm-hot`);
         return await response.json();
     },
+
+    /**
+     * Get broker summary data (Net Buy & Net Sell)
+     */
+    getNeoBDMBrokerSummary: async (
+        ticker: string,
+        tradeDate: string,
+        scrape: boolean = false
+    ): Promise<{
+        ticker: string;
+        trade_date: string;
+        buy: any[];
+        sell: any[];
+        source: string;
+    }> => {
+        const params = buildParams({
+            ticker,
+            trade_date: tradeDate,
+            scrape: scrape.toString()
+        });
+        const response = await fetch(`${API_BASE_URL}/api/neobdm-broker-summary?${params}`);
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to fetch broker summary');
+        }
+        return await response.json();
+    },
+
+    /**
+     * Run a batch scraping job for multiple tickers and dates
+     */
+    runNeoBDMBrokerSummaryBatch: async (
+        tasks: Array<{ ticker: string, dates: string[] }>
+    ): Promise<{ status: string, message: string }> => {
+        const response = await fetch(`${API_BASE_URL}/api/neobdm-broker-summary-batch`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(tasks)
+        });
+        return await response.json();
+    },
+
+    /**
+     * Get daily volume data for a ticker with smart incremental fetching
+     */
+    getVolumeDaily: async (ticker: string): Promise<{
+        ticker: string;
+        data: Array<{
+            trade_date: string;
+            volume: number;
+            open_price?: number;
+            high_price?: number;
+            low_price?: number;
+            close_price?: number;
+        }>;
+        source: string;
+        records_added: number;
+    }> => {
+        const params = buildParams({ ticker });
+        const response = await fetch(`${API_BASE_URL}/api/volume-daily?${params}`);
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to fetch volume data');
+        }
+        return await response.json();
+    }
 };

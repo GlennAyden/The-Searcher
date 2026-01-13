@@ -83,6 +83,12 @@ class DatabaseManager:
     def get_latest_hot_signals(self):
         return self.neobdm_repo.get_latest_hot_signals()
     
+    def save_broker_summary_batch(self, ticker, trade_date, buy_data, sell_data):
+        return self.neobdm_repo.save_broker_summary_batch(ticker, trade_date, buy_data, sell_data)
+    
+    def get_broker_summary(self, ticker, trade_date):
+        return self.neobdm_repo.get_broker_summary(ticker, trade_date)
+    
     # Running Trade operations - delegate to RunningTradeRepository
     def save_rt_snapshot(self, data):
         return self.rt_repo.save_rt_snapshot(data)
@@ -105,4 +111,17 @@ class DatabaseManager:
     # Market Metadata operations - delegate to MarketMetadataRepository
     def get_market_cap(self, symbol: str, ttl_hours: int = 24):
         return self.market_meta_repo.get_market_cap(symbol, ttl_hours)
+    
+    # Volume Daily operations - delegate to NeoBDMRepository
+    def save_volume_batch(self, ticker, records):
+        return self.neobdm_repo.save_volume_batch(ticker, records)
+    
+    def get_volume_history(self, ticker, start_date=None, end_date=None):
+        return self.neobdm_repo.get_volume_history(ticker, start_date, end_date)
+    
+    def get_latest_volume_date(self, ticker):
+        return self.neobdm_repo.get_latest_volume_date(ticker)
+    
+    def get_or_fetch_volume(self, ticker):
+        return self.neobdm_repo.get_or_fetch_volume(ticker)
 

@@ -139,6 +139,102 @@ class NeoBDMRepository(BaseRepository):
         finally:
             conn.close()
     
+    def save_broker_summary_batch(
+        self,
+        ticker: str,
+        trade_date: str,
+        buy_data: List[Dict],
+        sell_data: List[Dict]
+    ):
+        """
+        Save a batch of broker summary records.
+        
+        Args:
+            ticker: Stock ticker
+            trade_date: Date of the trade data
+            buy_data: List of net buy records
+            sell_data: List of net sell records
+        """
+        conn = self._get_conn()
+        try:
+            scraped_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Delete existing data for this ticker and date to avoid duplicates
+            conn.execute(
+                "DELETE FROM neobdm_broker_summaries WHERE UPPER(ticker) = UPPER(?) AND trade_date = ?",
+                (ticker, trade_date)
+            )
+            
+            query = """
+            INSERT INTO neobdm_broker_summaries (
+                ticker, trade_date, side, broker, nlot, nval, avg_price, scraped_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """
+            
+            rows_to_insert = []
+            
+            # Process Buy Data
+            for item in buy_data:
+                # Flexible key access
+                broker = item.get('broker')
+                nlot = self._parse_numeric(item.get('nlot', item.get('net lot', 0)))
+                nval = self._parse_numeric(item.get('nval', item.get('net val', 0)))
+                bavg = self._parse_numeric(item.get('bavg', item.get('avg price', 0)))
+                
+                rows_to_insert.append((
+                    ticker.upper(), trade_date, 'BUY',
+                    broker, nlot, nval, bavg, scraped_at
+                ))
+                
+            # Process Sell Data
+            for item in sell_data:
+                broker = item.get('broker')
+                nlot = self._parse_numeric(item.get('nlot', item.get('net lot', 0)))
+                nval = self._parse_numeric(item.get('nval', item.get('net val', 0)))
+                savg = self._parse_numeric(item.get('savg', item.get('avg price', 0)))
+                
+                rows_to_insert.append((
+                    ticker.upper(), trade_date, 'SELL',
+                    broker, nlot, nval, savg, scraped_at
+                ))
+            
+            if rows_to_insert:
+                conn.executemany(query, rows_to_insert)
+                conn.commit()
+                print(f"[*] Saved {len(rows_to_insert)} broker summary records for {ticker} on {trade_date}.")
+        except Exception as e:
+            print(f"[!] Error saving broker summary batch: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
+
+    def get_broker_summary(self, ticker: str, trade_date: str) -> Dict[str, List[Dict]]:
+        """
+        Get broker summary data for a specific ticker and date.
+        """
+        conn = self._get_conn()
+        try:
+            query = """
+            SELECT side, broker, nlot, nval, avg_price 
+            FROM neobdm_broker_summaries 
+            WHERE UPPER(ticker) = UPPER(?) AND trade_date = ?
+            ORDER BY nval DESC
+            """
+            df = pd.read_sql(query, conn, params=(ticker, trade_date))
+            
+            if df.empty:
+                return {"buy": [], "sell": []}
+                
+            buy_data = df[df['side'] == 'BUY'].to_dict('records')
+            sell_data = df[df['side'] == 'SELL'].to_dict('records')
+            
+            return {
+                "buy": buy_data,
+                "sell": sell_data
+            }
+        finally:
+            conn.close()
+    
     def get_neobdm_summaries(
         self,
         method: Optional[str] = None,
@@ -1240,3 +1336,192 @@ class NeoBDMRepository(BaseRepository):
             
         finally:
             conn.close()
+    
+    # ==================== VOLUME MANAGEMENT ====================
+    # Methods for handling daily volume data with incremental fetching
+    
+    def save_volume_batch(self, ticker: str, records: List[Dict]):
+        """
+        Save a batch of volume records for a ticker.
+        Uses INSERT OR REPLACE to handle duplicates.
+        
+        Args:
+            ticker: Stock ticker
+            records: List of volume records with keys:
+                - trade_date: YYYY-MM-DD
+                - volume: Trading volume
+                - open_price, high_price, low_price, close_price: OHLC data
+        """
+        conn = self._get_conn()
+        try:
+            query = """
+            INSERT OR REPLACE INTO volume_daily_records (
+                ticker, trade_date, volume, open_price, high_price, low_price, close_price
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """
+            
+            rows = []
+            for record in records:
+                rows.append((
+                    ticker.upper(),
+                    record['trade_date'],
+                    record['volume'],
+                    record.get('open_price'),
+                    record.get('high_price'),
+                    record.get('low_price'),
+                    record.get('close_price')
+                ))
+            
+            conn.executemany(query, rows)
+            conn.commit()
+            print(f"[*] Saved {len(rows)} volume records for {ticker}")
+            
+        except Exception as e:
+            print(f"[!] Error saving volume batch for {ticker}: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
+    
+    def get_volume_history(
+        self, 
+        ticker: str, 
+        start_date: Optional[str] = None, 
+        end_date: Optional[str] = None
+    ) -> List[Dict]:
+        """
+        Get volume history for a ticker within a date range.
+        
+        Args:
+            ticker: Stock ticker
+            start_date: Start date (YYYY-MM-DD), optional
+            end_date: End date (YYYY-MM-DD), optional
+        
+        Returns:
+            List of volume records sorted by date descending
+        """
+        conn = self._get_conn()
+        try:
+            query = """
+            SELECT trade_date, volume, open_price, high_price, low_price, close_price
+            FROM volume_daily_records
+            WHERE UPPER(ticker) = UPPER(?)
+            """
+            params = [ticker]
+            
+            if start_date:
+                query += " AND trade_date >= ?"
+                params.append(start_date)
+            
+            if end_date:
+                query += " AND trade_date <= ?"
+                params.append(end_date)
+            
+            query += " ORDER BY trade_date DESC"
+            
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            results = []
+            for row in rows:
+                results.append({
+                    'trade_date': row[0],
+                    'volume': row[1],
+                    'open_price': row[2],
+                    'high_price': row[3],
+                    'low_price': row[4],
+                    'close_price': row[5]
+                })
+            
+            return results
+            
+        finally:
+            conn.close()
+    
+    def get_latest_volume_date(self, ticker: str) -> Optional[str]:
+        """
+        Get the latest trade date for which we have volume data.
+        
+        Args:
+            ticker: Stock ticker
+        
+        Returns:
+            Latest trade date (YYYY-MM-DD) or None if no data
+        """
+        conn = self._get_conn()
+        try:
+            query = """
+            SELECT MAX(trade_date)
+            FROM volume_daily_records
+            WHERE UPPER(ticker) = UPPER(?)
+            """
+            cursor = conn.cursor()
+            cursor.execute(query, (ticker,))
+            row = cursor.fetchone()
+            
+            return row[0] if row and row[0] else None
+            
+        finally:
+            conn.close()
+    
+    def get_or_fetch_volume(self, ticker: str) -> Dict:
+        """
+        Smart volume fetching with incremental updates.
+        
+        Logic:
+        - If ticker has no data: fetch from 2025-12-22 to today
+        - If ticker has data: fetch from (latest_date + 1) to today
+        - Returns all historical data from database
+        
+        Args:
+            ticker: Stock ticker
+        
+        Returns:
+            {
+                "ticker": "BBCA",
+                "data": [...],
+                "source": "database" or "fetched",
+                "records_added": 10
+            }
+        """
+        from modules.volume_fetcher import VolumeFetcher
+        
+        latest_date = self.get_latest_volume_date(ticker)
+        fetcher = VolumeFetcher()
+        records_added = 0
+        source = "database"
+        
+        if latest_date is None:
+            # First time fetch: get all data from START_DATE
+            print(f"[*] First time fetching volume for {ticker} from {fetcher.START_DATE}")
+            records = fetcher.get_volume_data(ticker, start_date=fetcher.START_DATE)
+            
+            if records:
+                self.save_volume_batch(ticker, records)
+                records_added = len(records)
+                source = "fetched_full"
+        else:
+            # Incremental fetch: only get new data
+            next_date = (datetime.strptime(latest_date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+            today = datetime.now().strftime('%Y-%m-%d')
+            
+            if next_date <= today:
+                print(f"[*] Incremental fetch for {ticker} from {next_date} to {today}")
+                records = fetcher.get_volume_data(ticker, start_date=next_date, end_date=today)
+                
+                if records:
+                    self.save_volume_batch(ticker, records)
+                    records_added = len(records)
+                    source = "fetched_incremental"
+            else:
+                print(f"[*] Volume data for {ticker} is up to date (latest: {latest_date})")
+        
+        # Get all historical data from database
+        all_data = self.get_volume_history(ticker, start_date=fetcher.START_DATE)
+        
+        return {
+            "ticker": ticker.upper(),
+            "data": all_data,
+            "source": source,
+            "records_added": records_added
+        }

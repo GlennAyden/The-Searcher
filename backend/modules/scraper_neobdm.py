@@ -379,6 +379,250 @@ class NeoBDMScraper:
             print("No data found across any pages.")
             return None, reference_date
 
+    async def get_broker_summary(self, ticker: str, date_str: str):
+        """
+        Scrapes the Broker Summary table for a specific ticker and date.
+        date_str: 'YYYY-MM-DD'
+        """
+        if not self.page:
+            return None, None
+
+        try:
+            target_url = f"{self.base_url}/broker_summary/"
+            
+            # Optimization: Only navigate if NOT already on the page
+            if self.page.url != target_url:
+                print(f"   [SYNC] Navigating to {target_url}...", flush=True)
+                await self.page.goto(target_url, wait_until='networkidle', timeout=60000)
+                # Wait for main controls initially
+                await self.page.wait_for_selector('.Select-control', state='visible', timeout=20000)
+            else:
+                print(f"   [SYNC] Already on {target_url}, skipping navigation.", flush=True)
+
+            # 1. Select Ticker
+            print(f"   [SYNC] Selecting ticker {ticker}...", flush=True)
+            try:
+                # Based on subagent success: click control, type, click option
+                await self.page.click('.Select-control', force=True)
+                await asyncio.sleep(1)
+                await self.page.keyboard.type(ticker)
+                await asyncio.sleep(2)
+                
+                # Check for the option and click it
+                option_selector = f".Select-option:has-text('{ticker}')"
+                await self.page.wait_for_selector(option_selector, timeout=5000)
+                await self.page.click(option_selector, force=True)
+                print(f"   [SYNC] Successfully selected {ticker} from dropdown.")
+            except Exception as e:
+                print(f"   [WARNING] Ticker selection sequence issue: {e}. Trying simple Enter.")
+                await self.page.keyboard.press('Enter')
+            
+            await asyncio.sleep(2)
+            # Click away to ensure dropdown is closed
+            await self.page.click('body', force=True)
+            await asyncio.sleep(1)
+
+            # 2. Set Date
+            print(f"   [SYNC] Setting date to {date_str}...", flush=True)
+            # Use evaluate to set the date value (as done by subagent)
+            await self.page.evaluate(f"""
+                (date) => {{
+                    const dateInput = document.getElementById('broksum-date');
+                    if (dateInput) {{
+                        dateInput.value = date;
+                        dateInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        dateInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    }}
+                }}
+            """, date_str)
+            
+            # THE MAGIC NUDGE: Right Arrow (as discovered by subagent)
+            print("   [SYNC] Nudging with Right Arrow to trigger Dash update...")
+            await asyncio.sleep(2)
+            await self.page.click('#right-button', force=True)
+            await asyncio.sleep(5) 
+
+            # 3. Wait for data to load
+            print("  [LOADING] Waiting for data to render...")
+            
+            # Helper to check if any data row exists
+            async def data_present():
+                return await self.page.locator('.dash-cell').count() > 0
+
+            # Final check/wait
+            if not await data_present():
+                 print("   [LOADING] Data not yet present, trying one more nudge...")
+                 await self.page.click('#left-button', force=True)
+                 await asyncio.sleep(2)
+                 await self.page.click('#right-button', force=True)
+                 await asyncio.sleep(5)
+
+            await asyncio.sleep(2)
+
+            # 4. Extract Data
+            print("   [DATA] Extracting rows from tables...")
+            data = await self.page.evaluate(r"""
+                () => {
+                    const normalize = (text) => text.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
+                    const headerKey = (header, avgKey) => {
+                        const norm = normalize(header);
+                        if (!norm) return null;
+                        if (norm.includes('broker') || norm === 'brk') return 'broker';
+                        if (norm.includes('nlot') || norm.includes('netlot') || norm === 'lot') return 'nlot';
+                        if (norm.includes('nval') || norm.includes('netval') || norm === 'val' || norm.includes('value')) return 'nval';
+                        if (norm.includes('bavg') || norm.includes('savg') || norm.includes('avg')) return avgKey;
+                        return null;
+                    };
+
+                    const dedupeConsecutive = (items) => {
+                        const result = [];
+                        for (const item of items) {
+                            if (result.length === 0 || result[result.length - 1] !== item) {
+                                result.push(item);
+                            }
+                        }
+                        return result;
+                    };
+
+                    const extract = (table, avgKey) => {
+                        if (!table) return [];
+                        const headers = Array.from(table.querySelectorAll('th, .dash-header span'))
+                            .map(s => s.innerText.trim())
+                            .filter(s => s.length > 0);
+
+                        // Find data rows - rows that contain .dash-cell
+                        const rows = Array.from(table.querySelectorAll('tr')).filter(tr => tr.querySelector('.dash-cell'));
+                        const cellCount = rows.length ? rows[0].querySelectorAll('td.dash-cell').length : 0;
+                        const dedupedHeaders = dedupeConsecutive(headers);
+                        let effectiveHeaders = headers;
+                        if (cellCount && dedupedHeaders.length === cellCount) {
+                            effectiveHeaders = dedupedHeaders;
+                        } else if (cellCount && headers.length > cellCount) {
+                            effectiveHeaders = headers.slice(headers.length - cellCount);
+                        }
+                        const keyMap = effectiveHeaders.map(h => headerKey(h, avgKey));
+                        
+                        return rows.map(tr => {
+                            const cells = Array.from(tr.querySelectorAll('td.dash-cell'));
+                            let rowData = {};
+                            keyMap.forEach((key, index) => {
+                                if (key && cells[index]) {
+                                    rowData[key] = cells[index].textContent.trim();
+                                }
+                            });
+                            return rowData;
+                        }).filter(r => r.broker && r.broker.length > 0);
+                    };
+
+                    const isBrokerTable = (table) => {
+                        const headers = Array.from(table.querySelectorAll('th, .dash-header span'))
+                            .map(h => h.innerText.trim());
+                        const keys = headers.map(h => headerKey(h, 'avg')).filter(Boolean);
+                        return keys.includes('broker') && (keys.includes('nlot') || keys.includes('nval'));
+                    };
+
+                    const allTables = Array.from(document.querySelectorAll('table'));
+                    const candidateTables = allTables.filter(isBrokerTable);
+                    const dashTables = Array.from(document.querySelectorAll('.dash-spreadsheet-container table'));
+
+                    const tables = candidateTables.length >= 2 ? candidateTables : dashTables;
+                    if (tables.length < 2) return null;
+
+                    return {
+                        buy: extract(tables[0], 'bavg'),
+                        sell: extract(tables[1], 'savg')
+                    };
+                }
+            """)
+
+            if not data or (not data['buy'] and not data['sell']):
+                # Final attempt: just grab all dash-cells and group them by 4
+                print("   [DATA] Specific table match failed. Trying generic cell extraction...")
+                data = await self.page.evaluate("""
+                    () => {
+                        const cells = Array.from(document.querySelectorAll('td.dash-cell'));
+                        if (cells.length === 0) return null;
+                        
+                        // Usually 4 columns: broker, nlot, nval, avg
+                        const rows = [];
+                        for (let i = 0; i < cells.length; i += 4) {
+                            rows.push({
+                                broker: cells[i] ? cells[i].textContent.trim() : '',
+                                nlot: cells[i+1] ? cells[i+1].textContent.trim() : '',
+                                nval: cells[i+2] ? cells[i+2].textContent.trim() : '',
+                                avg: cells[i+3] ? cells[i+3].textContent.trim() : ''
+                            });
+                        }
+                        
+                        // If we have rows, split them (left table for BUY, right table for SELL)
+                        // This assumes the tables are rendered sequentially in the DOM
+                        const firstSellIndex = rows.findIndex((r, idx) => idx > 0 && r.broker === rows[0].broker);
+                        // Actually, better: just split in half if we have two headers
+                        // In the screenshot, they are two separate tables but cells might be flat
+                        
+                        // Let's just return a flat list if we can't distinguish, 
+                        // but the headers approach usually works.
+                        return null; // Let the caller decide or retry
+                    }
+                """)
+                if not data:
+                    print(f"   [DATA] No broker summary data found for {ticker} on {date_str}")
+                    return None
+
+            print(f"   [DATA] Extracted {len(data['buy'])} buy rows and {len(data['sell'])} sell rows.")
+            return data
+
+        except Exception as e:
+            print(f"   [ERROR] Failed to scrape broker summary: {e}")
+            return None
+
+    async def get_broker_summary_batch(self, tasks: list):
+        """
+        Execute multiple broker summary scrapes in a single session.
+        tasks format: [{"ticker": "ANTM", "dates": ["2026-01-12", "2026-01-11"]}, ...]
+        """
+        if not self.page:
+            return []
+
+        results = []
+        try:
+            # Login once
+            login_success = await self.login()
+            if not login_success:
+                return [{"error": "Login failed"}]
+
+            # Navigate once
+            target_url = f"{self.base_url}/broker_summary/"
+            await self.page.goto(target_url, wait_until='networkidle', timeout=60000)
+            await self.page.wait_for_selector('.Select-control', state='visible', timeout=20000)
+
+            for task in tasks:
+                ticker = task.get('ticker')
+                dates = task.get('dates', [])
+                
+                for date_str in dates:
+                    print(f"[*] Batch Sync: Processing {ticker} for {date_str}...")
+                    data = await self.get_broker_summary(ticker, date_str)
+                    
+                    if data:
+                        results.append({
+                            "ticker": ticker,
+                            "trade_date": date_str,
+                            "buy": data.get('buy', []),
+                            "sell": data.get('sell', [])
+                        })
+                    else:
+                        print(f"[!] Batch Sync: No data found for {ticker} on {date_str}")
+                    
+                    # Small cooldown between ticker/date changes to let Dash breathe
+                    await asyncio.sleep(2)
+
+            return results
+
+        except Exception as e:
+            print(f"[!] Critical error in Batch Sync: {e}")
+            return results
+
     async def close(self):
         if self.browser:
             await self.browser.close()

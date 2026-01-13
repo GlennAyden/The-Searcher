@@ -1,13 +1,19 @@
 """NeoBDM routes for market maker/non-retail/foreign flow analysis."""
-from fastapi import APIRouter, Query, BackgroundTasks
+from fastapi import APIRouter, Query, BackgroundTasks, Body
 from fastapi.responses import JSONResponse
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
+from pydantic import BaseModel
 import logging
 import asyncio
 import json
 
 router = APIRouter(prefix="/api", tags=["neobdm"])
+
+
+class BrokerSummaryBatchTask(BaseModel):
+    ticker: str
+    dates: List[str]
 
 
 @router.get("/neobdm-summary")
@@ -89,6 +95,74 @@ async def get_neobdm_summary(
         return {
             "scraped_at": scraped_at,
             "data": df.to_dict(orient="records")
+        }
+
+
+@router.get("/neobdm-broker-summary")
+async def get_neobdm_broker_summary(
+    ticker: str,
+    trade_date: str,
+    scrape: bool = Query(False)
+):
+    """
+    Get or scrape broker summary for a specific ticker and date.
+    
+    Args:
+        ticker: Stock ticker
+        trade_date: Trade date (YYYY-MM-DD)
+        scrape: Whether to force scrape fresh data
+    """
+    from modules.database import DatabaseManager
+    db_manager = DatabaseManager()
+
+    if scrape:
+        try:
+            from modules.scraper_neobdm import NeoBDMScraper
+            scraper = NeoBDMScraper()
+            await scraper.init_browser(headless=True)
+            login_success = await scraper.login()
+            
+            if not login_success:
+                return JSONResponse(status_code=401, content={"error": "NeoBDM login failed"})
+            
+            data = await scraper.get_broker_summary(ticker.upper(), trade_date)
+            await scraper.close()
+            
+            if data and (data.get('buy') or data.get('sell')):
+                db_manager.save_broker_summary_batch(
+                    ticker.upper(), 
+                    trade_date, 
+                    data.get('buy', []), 
+                    data.get('sell', [])
+                )
+                normalized = db_manager.get_broker_summary(ticker.upper(), trade_date)
+                return {
+                    "ticker": ticker.upper(),
+                    "trade_date": trade_date,
+                    "buy": normalized.get('buy', []),
+                    "sell": normalized.get('sell', []),
+                    "source": "scraper"
+                }
+            return {
+                "ticker": ticker.upper(),
+                "trade_date": trade_date,
+                "buy": [],
+                "sell": [],
+                "source": "scraper"
+            }
+            
+        except Exception as e:
+            logging.error(f"Broker Summary scrape error: {e}")
+            return JSONResponse(status_code=500, content={"error": str(e)})
+    else:
+        # Fetch from DB
+        data = db_manager.get_broker_summary(ticker.upper(), trade_date)
+        return {
+            "ticker": ticker.upper(),
+            "trade_date": trade_date,
+            "buy": data.get('buy', []),
+            "sell": data.get('sell', []),
+            "source": "database"
         }
 
 
@@ -215,7 +289,7 @@ async def perform_full_sync():
 
 
 @router.get("/neobdm-history")
-@router.get("/neobdm/history") # Alias to fix potential 404s from slash/dash mismatch
+@router.get("/neobdm/history") # Al ias to fix potential 404s from slash/dash mismatch
 def get_neobdm_history(
     symbol: str = None,
     ticker: str = None,
@@ -306,3 +380,167 @@ async def get_neobdm_hot():
         return {"signals": hot_list}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.get("/broker-summary")
+async def get_broker_summary_api(
+    ticker: str,
+    trade_date: str,
+    scrape: bool = Query(False)
+):
+    """
+    Get broker summary data (Net Buy & Net Sell).
+    If data is not in DB or scrape=True, trigger the scraper.
+    """
+    from modules.database import DatabaseManager
+    from modules.scraper_neobdm import NeoBDMScraper
+    
+    db_manager = DatabaseManager()
+    
+    # 1. Try to fetch from DB first (unless forced scrape)
+    if not scrape:
+        data = db_manager.get_broker_summary(ticker.upper(), trade_date)
+        if data['buy'] or data['sell']:
+            print(f"[*] Found broker summary for {ticker} on {trade_date} in DB.")
+            return {
+                "ticker": ticker.upper(),
+                "trade_date": trade_date,
+                "buy": data['buy'],
+                "sell": data['sell'],
+                "source": "database"
+            }
+            
+    # 2. Trigger scraper if needed
+    print(f"[*] Scraping broker summary for {ticker} on {trade_date}...")
+    scraper = NeoBDMScraper()
+    try:
+        await scraper.init_browser(headless=True)
+        login_success = await scraper.login()
+        if not login_success:
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Failed to login to NeoBDM"}
+            )
+            
+        scraped_data = await scraper.get_broker_summary(ticker.upper(), trade_date)
+        
+        if scraped_data and (scraped_data['buy'] or scraped_data['sell']):
+            # Save to DB, then return normalized DB output
+            db_manager.save_broker_summary_batch(
+                ticker=ticker,
+                trade_date=trade_date,
+                buy_data=scraped_data['buy'],
+                sell_data=scraped_data['sell']
+            )
+
+            data = db_manager.get_broker_summary(ticker.upper(), trade_date)
+            return {
+                "ticker": ticker.upper(),
+                "trade_date": trade_date,
+                "buy": data['buy'],
+                "sell": data['sell'],
+                "source": "scraper"
+            }
+        else:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"No data found for {ticker} on {trade_date}"}
+            )
+            
+    except Exception as e:
+        logging.error(f"Broker Summary API error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+    finally:
+        await scraper.close()
+
+
+@router.post("/neobdm-broker-summary-batch")
+async def run_neobdm_broker_summary_batch(
+    background_tasks: BackgroundTasks,
+    tasks: List[BrokerSummaryBatchTask] = Body(...)
+):
+    """
+    Trigger a batch scraping job for multiple tickers and dates.
+    Format: [{"ticker": "ANTM", "dates": ["2026-01-12", "2026-01-11"]}, ...]
+    """
+    if not tasks:
+        return JSONResponse(status_code=400, content={"error": "No batch tasks provided"})
+
+    tasks_payload = [task.dict() for task in tasks]
+    background_tasks.add_task(perform_broker_summary_batch_sync, tasks_payload)
+    return {
+        "status": "processing",
+        "message": f"Scrape job started for {len(tasks)} tickers. Data will be available in the database shortly."
+    }
+
+
+async def perform_broker_summary_batch_sync(tasks: list):
+    """Background task for batch broker summary sync."""
+    from modules.scraper_neobdm import NeoBDMScraper
+    from modules.database import DatabaseManager
+    import logging
+    
+    db_manager = DatabaseManager()
+    scraper = NeoBDMScraper()
+    
+    try:
+        await scraper.init_browser(headless=True)
+        results = await scraper.get_broker_summary_batch(tasks)
+        
+        for res in results:
+            if "error" not in res:
+                db_manager.save_broker_summary_batch(
+                    ticker=res['ticker'],
+                    trade_date=res['trade_date'],
+                    buy_data=res['buy'],
+                    sell_data=res['sell']
+                )
+        
+        print(f"[*] Batch Broker Summary Sync completed. {len(results)} records processed.")
+        
+    except Exception as e:
+        logging.error(f"Error in background batch broker summary sync: {e}")
+    finally:
+        await scraper.close()
+
+
+@router.get("/volume-daily")
+async def get_volume_daily(ticker: str):
+    """
+    Get daily volume data for a ticker with smart incremental fetching.
+    
+    Args:
+        ticker: Stock ticker (e.g., 'BBCA')
+    
+    Returns:
+        {
+            "ticker": "BBCA",
+            "data": [
+                {
+                    "trade_date": "2025-12-22",
+                    "volume": 12500000,
+                    "close_price": 8750,
+                    ...
+                }
+            ],
+            "source": "database" | "fetched_full" | "fetched_incremental",
+            "records_added": 10
+        }
+    """
+    from modules.database import DatabaseManager
+    
+    try:
+        db_manager = DatabaseManager()
+        result = db_manager.get_or_fetch_volume(ticker.upper())
+        
+        return result
+        
+    except Exception as e:
+        logging.error(f"Error fetching volume data for {ticker}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )

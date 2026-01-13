@@ -16,6 +16,18 @@ async def get_tickers():
     return {"tickers": tickers}
 
 
+@router.get("/issuer-tickers")
+async def get_issuer_tickers():
+    """Get master list of issuer tickers from the local IDX map."""
+    try:
+        from modules.utils import load_ticker_map, TICKER_MAP
+        load_ticker_map()
+        tickers = sorted(list(TICKER_MAP.keys()))
+        return {"tickers": tickers}
+    except Exception:
+        return {"tickers": []}
+
+
 @router.get("/dashboard-stats")
 async def get_dashboard_stats(
     ticker: str = "^JKSE",

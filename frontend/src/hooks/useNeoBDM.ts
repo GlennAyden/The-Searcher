@@ -144,3 +144,36 @@ export function useNeoBDMHotList() {
         refetch: execute
     };
 }
+
+/**
+ * Hook for broker summary data (Net Buy & Net Sell)
+ */
+export function useBrokerSummary(ticker: string, tradeDate: string) {
+    const { data, loading, error, execute } = useApi(neobdmApi.getBrokerSummary);
+    const [isScraping, setIsScraping] = useState(false);
+
+    useEffect(() => {
+        if (ticker && tradeDate) {
+            execute(ticker, tradeDate, false);
+        }
+    }, [ticker, tradeDate, execute]);
+
+    const scrape = useCallback(async () => {
+        if (!ticker || !tradeDate) return;
+        setIsScraping(true);
+        try {
+            await execute(ticker, tradeDate, true);
+        } finally {
+            setIsScraping(false);
+        }
+    }, [ticker, tradeDate, execute]);
+
+    return {
+        data: data?.data || { buy: [], sell: [] },
+        source: data?.source || 'none',
+        loading: loading || isScraping,
+        error,
+        scrape,
+        refetch: () => execute(ticker, tradeDate, false)
+    };
+}

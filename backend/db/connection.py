@@ -161,6 +161,21 @@ class DatabaseConnection:
             );
         """)
 
+        # NeoBDM Broker Summaries (Net Buy & Net Sell)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS neobdm_broker_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT,
+                trade_date TEXT,
+                side TEXT,
+                broker TEXT,
+                nlot REAL,
+                nval REAL,
+                avg_price REAL,
+                scraped_at DATETIME
+            );
+        """)
+
         # Market Analytics Cache (OHLCV Data for Forecasting)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS market_analytics_cache (
@@ -186,6 +201,22 @@ class DatabaseConnection:
             );
         """)
         
+        # Volume Daily Records (Incremental Volume Data)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS volume_daily_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                trade_date TEXT NOT NULL,
+                volume INTEGER NOT NULL,
+                open_price REAL,
+                high_price REAL,
+                low_price REAL,
+                close_price REAL,
+                fetched_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(ticker, trade_date)
+            );
+        """)
+        
         # Safe migration for existing tables
         try:
             conn.execute("ALTER TABLE news ADD COLUMN summary TEXT")
@@ -201,9 +232,13 @@ class DatabaseConnection:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_neobdm_rec_lookup ON neobdm_records(method, period, scraped_at);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_neobdm_rec_symbol ON neobdm_records(symbol);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_neobdm_sum_lookup ON neobdm_summaries(method, period, scraped_at);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_neobdm_broker_lookup ON neobdm_broker_summaries(ticker, trade_date);")
         
         # Market Metadata Indexes
         conn.execute("CREATE INDEX IF NOT EXISTS idx_market_meta_symbol ON market_metadata(symbol);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_market_meta_cached ON market_metadata(cached_at);")
+        
+        # Volume Daily Indexes
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_volume_ticker_date ON volume_daily_records(ticker, trade_date DESC);")
         
         conn.commit()

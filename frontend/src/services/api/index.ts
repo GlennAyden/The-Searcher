@@ -20,11 +20,21 @@ import { neobdmApi } from './neobdm';
 import { scrapersApi } from './scrapers';
 import { forecastingApi } from './forecasting';
 
+const api = {
+    ...dashboardApi,
+    ...newsApi,
+    ...disclosuresApi,
+    ...neobdmApi,
+    ...scrapersApi,
+    ...forecastingApi
+};
+
 export {
     dashboardApi,
     newsApi,
     disclosuresApi,
     neobdmApi,
     scrapersApi,
-    forecastingApi
+    forecastingApi,
+    api
 };

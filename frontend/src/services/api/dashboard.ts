@@ -38,6 +38,15 @@ export const dashboardApi = {
     },
 
     /**
+     * Get master list of issuer tickers
+     */
+    getIssuerTickers: async (): Promise<string[]> => {
+        const response = await fetch(`${API_BASE_URL}/api/issuer-tickers`);
+        const data = await response.json();
+        return data.tickers;
+    },
+
+    /**
      * Get comprehensive dashboard statistics
      */
     getDashboardStats: async (

@@ -32,6 +32,7 @@ export type { NewsItem, Disclosure };
 export const api = {
     // Dashboard APIs
     getTickers: dashboardApi.getTickers,
+    getIssuerTickers: dashboardApi.getIssuerTickers,
     getDashboardStats: dashboardApi.getDashboardStats,
     getMarketData: dashboardApi.getMarketData,
     getSentimentHistory: dashboardApi.getSentimentHistory,
@@ -56,6 +57,9 @@ export const api = {
     getNeoBDMHistory: neobdmApi.getNeoBDMHistory,
     getNeoBDMTickers: neobdmApi.getNeoBDMTickers,
     getNeoBDMHotList: neobdmApi.getNeoBDMHotList,
+    getNeoBDMBrokerSummary: neobdmApi.getNeoBDMBrokerSummary,
+    runNeoBDMBrokerSummaryBatch: neobdmApi.runNeoBDMBrokerSummaryBatch,
+    getVolumeDaily: neobdmApi.getVolumeDaily,
 
     // Scraper APIs
     runScraper: scrapersApi.runScraper,

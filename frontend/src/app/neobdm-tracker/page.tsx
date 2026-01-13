@@ -53,6 +53,11 @@ export default function NeoBDMTrackerPage() {
     const [priceFilter, setPriceFilter] = useState<string>('');
     const [showLegend, setShowLegend] = useState(false);
 
+    // Volume Daily State
+    const [volumeData, setVolumeData] = useState<any[]>([]);
+    const [volumeLoading, setVolumeLoading] = useState(false);
+    const [volumeError, setVolumeError] = useState<string | null>(null);
+
     // Filter tickers based on input
     const filteredTickers = useMemo(() => {
         const query = searchInput.toUpperCase();
@@ -166,8 +171,29 @@ export default function NeoBDMTrackerPage() {
         }
     };
 
+    const loadVolumeData = async () => {
+        if (!symbol) return;
+        setVolumeLoading(true);
+        setVolumeError(null);
+        try {
+            const result = await api.getVolumeDaily(symbol);
+            // Reverse to show oldest on left, newest on right (consistent with flow chart)
+            const formattedData = result.data.map(item => ({
+                ...item,
+                date: new Date(item.trade_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }),
+                fullDate: item.trade_date
+            })).reverse();
+            setVolumeData(formattedData);
+        } catch (err: any) {
+            setVolumeError(err.message || "Failed to load volume data");
+        } finally {
+            setVolumeLoading(false);
+        }
+    };
+
     useEffect(() => {
         loadData();
+        loadVolumeData();
     }, [symbol, method, period, limit, flowMetric]);
 
     // Prepare data for Chart
@@ -898,6 +924,79 @@ export default function NeoBDMTrackerPage() {
                                         activeDot={{ r: 6, strokeWidth: 0, fill: '#60a5fa' }}
                                     />
                                 </ComposedChart>
+                            </ResponsiveContainer>
+                        </div>
+                    )}
+                </div>
+
+                {/* Volume Daily Section - NEW */}
+                <div className="bg-[#181a1f] border border-zinc-800/50 rounded-md p-4 h-[350px] flex flex-col">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                            <Activity className="w-4 h-4 text-purple-500" />
+                            <h3 className="text-xs font-bold text-zinc-400">Daily Trading Volume</h3>
+                        </div>
+                        <div className="text-[9px] text-zinc-500 italic">
+                            From 22 Dec 2025 • {volumeData.length} trading days
+                        </div>
+                    </div>
+
+                    {volumeLoading ? (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-4">
+                            <Activity className="w-8 h-8 text-purple-500 animate-pulse" />
+                            <span className="text-[10px] text-purple-400 font-bold tracking-[0.2em]">LOADING VOLUME...</span>
+                        </div>
+                    ) : volumeError ? (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-4 text-red-500">
+                            <AlertCircle className="w-8 h-8 opacity-50" />
+                            <span className="text-[10px] font-bold">{volumeError}</span>
+                        </div>
+                    ) : (
+                        <div className="flex-1 w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={volumeData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                                    <XAxis
+                                        dataKey="date"
+                                        stroke="#52525b"
+                                        fontSize={9}
+                                        tickLine={false}
+                                        axisLine={false}
+                                        dy={10}
+                                    />
+                                    <YAxis
+                                        stroke="#52525b"
+                                        fontSize={9}
+                                        tickLine={false}
+                                        axisLine={false}
+                                        tickFormatter={(val) => `${(val / 1000000).toFixed(1)}M`}
+                                    />
+                                    <Tooltip
+                                        content={({ active, payload, label }: any) => {
+                                            if (active && payload && payload.length) {
+                                                const item = payload[0].payload;
+                                                return (
+                                                    <div className="bg-[#181a1f] border border-zinc-700 p-3 rounded-md shadow-xl font-mono text-[10px] min-w-[200px]">
+                                                        <p className="text-zinc-400 mb-1 border-b border-zinc-800 pb-1">{item.fullDate}</p>
+                                                        <div className="space-y-1 mt-2">
+                                                            <div className="flex justify-between gap-4">
+                                                                <span className="text-zinc-500">Volume:</span>
+                                                                <span className="text-purple-400 font-bold">{item.volume.toLocaleString()}</span>
+                                                            </div>
+                                                            <div className="flex justify-between gap-4">
+                                                                <span className="text-zinc-500">Close:</span>
+                                                                <span className="text-zinc-300 font-bold">{item.close_price?.toLocaleString()}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        }}
+                                        cursor={{ fill: '#3f3f46', fillOpacity: 0.3 }}
+                                    />
+                                    <Bar dataKey="volume" fill="#a855f7" fillOpacity={0.6} radius={[4, 4, 0, 0]} />
+                                </BarChart>
                             </ResponsiveContainer>
                         </div>
                     )}
