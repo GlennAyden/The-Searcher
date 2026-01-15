@@ -89,6 +89,15 @@ class DatabaseManager:
     def get_broker_summary(self, ticker, trade_date):
         return self.neobdm_repo.get_broker_summary(ticker, trade_date)
     
+    def get_available_dates_for_ticker(self, ticker):
+        return self.neobdm_repo.get_available_dates_for_ticker(ticker)
+    
+    def get_broker_journey(self, ticker, brokers, start_date, end_date):
+        return self.neobdm_repo.get_broker_journey(ticker, brokers, start_date, end_date)
+    
+    def get_top_holders_by_net_lot(self, ticker, limit=3):
+        return self.neobdm_repo.get_top_holders_by_net_lot(ticker, limit)
+    
     # Running Trade operations - delegate to RunningTradeRepository
     def save_rt_snapshot(self, data):
         return self.rt_repo.save_rt_snapshot(data)

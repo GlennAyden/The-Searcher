@@ -379,6 +379,304 @@ class NeoBDMScraper:
             print("No data found across any pages.")
             return None, reference_date
 
+    async def _get_data_fingerprint(self):
+        """
+        Extract a fingerprint of current broker summary data.
+        Returns list of first 3 broker codes from buy side.
+        """
+        try:
+            fingerprint = await self.page.evaluate("""
+                () => {
+                    const cells = Array.from(document.querySelectorAll('.dash-cell'));
+                    const brokers = [];
+                    // Get first 3 broker codes (every 4th cell starting from 0)
+                    for (let i = 0; i < Math.min(12, cells.length); i += 4) {
+                        brokers.push(cells[i].textContent.trim());
+                    }
+                    return brokers.slice(0, 3);
+                }
+            """)
+            return fingerprint if fingerprint else []
+        except Exception:
+            return []
+
+    async def _select_ticker_robust(self, ticker: str, retry_count: int = 3) -> bool:
+        """
+        Robustly select ticker from dropdown with retry logic.
+        """
+        if not self.page:
+            return False
+        
+        for attempt in range(retry_count):
+            try:
+                print(f"   [TICKER] Selecting {ticker} (attempt {attempt+1})...")
+                
+                # Method 1: Click dropdown, type, and select option
+                try:
+                    # Wait for dropdown to be ready
+                    await self.page.wait_for_selector('.Select-control', state='visible', timeout=10000)
+                    
+                    # Click to open dropdown
+                    await self.page.click('.Select-control', force=True)
+                    await asyncio.sleep(1.5)
+                    
+                    # Type ticker to filter
+                    await self.page.keyboard.type(ticker)
+                    await asyncio.sleep(2)
+                    
+                    # Wait for option to appear with longer timeout
+                    option_selector = f".Select-option:has-text('{ticker}')"
+                    try:
+                        await self.page.wait_for_selector(option_selector, state='visible', timeout=10000)
+                        await self.page.click(option_selector, force=True)
+                        print(f"   [TICKER] Successfully selected {ticker} from dropdown")
+                        
+                        # Click away to close dropdown
+                        await asyncio.sleep(1)
+                        await self.page.click('body', force=True)
+                        await asyncio.sleep(1)
+                        return True
+                    except Exception as e:
+                        print(f"   [TICKER] Option not found: {e}. Trying Enter key...")
+                        await self.page.keyboard.press('Enter')
+                        await asyncio.sleep(2)
+                        await self.page.click('body', force=True)
+                        await asyncio.sleep(1)
+                        # Assume success if no error
+                        return True
+                        
+                except Exception as e:
+                    print(f"   [TICKER] Method 1 failed: {e}")
+                    
+                # Method 2: Direct input field approach (fallback)
+                try:
+                    print(f"   [TICKER] Trying direct input method...")
+                    input_field = self.page.locator('.Select-control input')
+                    if await input_field.count() > 0:
+                        await input_field.click()
+                        await asyncio.sleep(0.5)
+                        await input_field.fill('')
+                        await input_field.type(ticker)
+                        await asyncio.sleep(1.5)
+                        await self.page.keyboard.press('Enter')
+                        await asyncio.sleep(2)
+                        await self.page.click('body', force=True)
+                        print(f"   [TICKER] Direct input method completed")
+                        return True
+                except Exception as e2:
+                    print(f"   [TICKER] Method 2 also failed: {e2}")
+                    
+            except Exception as e:
+                print(f"   [TICKER] Attempt {attempt+1} failed completely: {e}")
+                
+            # Wait before retry
+            if attempt < retry_count - 1:
+                await asyncio.sleep(2)
+        
+        print(f"   [TICKER] Failed to select {ticker} after {retry_count} attempts")
+        return False
+
+    async def _get_broker_summary_date_value(self):
+        if not self.page:
+            return None
+        date_input = self.page.locator('#broksum-date')
+        if await date_input.count() == 0:
+            return None
+        try:
+            return await date_input.input_value()
+        except Exception:
+            return None
+
+    async def _navigate_to_date_via_arrows(self, target_date: str, max_clicks: int = 30) -> bool:
+        """
+        Navigate to target date using arrow buttons with JavaScript fallback.
+        Returns True if successfully navigated to target date.
+        """
+        if not self.page:
+            return False
+        
+        from datetime import datetime, timedelta
+        
+        try:
+            # Get current date from field
+            current_date_str = await self._get_broker_summary_date_value()
+            if not current_date_str:
+                print(f"   [DATE] Cannot get current date value, using JS fallback...")
+                return await self._set_date_via_javascript(target_date)
+            
+            print(f"   [DATE] Current date: {current_date_str}, Target: {target_date}")
+            
+            # Parse dates
+            try:
+                current_date = datetime.strptime(current_date_str, '%Y-%m-%d')
+                target_date_obj = datetime.strptime(target_date, '%Y-%m-%d')
+            except Exception as e:
+                print(f"   [DATE] Date parsing error: {e}, using JS fallback...")
+                return await self._set_date_via_javascript(target_date)
+            
+            # Calculate difference
+            diff_days = (target_date_obj - current_date).days
+            print(f"   [DATE] Need to move {diff_days} days")
+            
+            if diff_days == 0:
+                print(f"   [DATE] Already at target date")
+                return True
+            
+            # If difference is too large (>5 days) or arrow method is unreliable, use JS directly
+            if abs(diff_days) > 5:
+                print(f"   [DATE] Large date difference ({diff_days} days), using direct JS method...")
+                return await self._set_date_via_javascript(target_date)
+            
+            # Try arrow method for small differences
+            print(f"   [DATE] Attempting arrow navigation for {abs(diff_days)} days...")
+            
+            # Determine direction and button
+            if diff_days > 0:
+                arrow_selector = '#right-button'
+                direction = "forward"
+            else:
+                arrow_selector = '#left-button'
+                direction = "backward"
+                diff_days = abs(diff_days)
+            
+            # Attempt arrow navigation (quick attempt, 3 clicks max)
+            clicks_made = 0
+            last_seen_date = current_date_str
+            
+            for i in range(min(diff_days, 3)):
+                try:
+                    arrow_button = self.page.locator(arrow_selector).first
+                    if await arrow_button.count() > 0:
+                        await arrow_button.click(force=True)
+                        clicks_made += 1
+                        await asyncio.sleep(1.0)
+                        
+                        new_date = await self._get_broker_summary_date_value()
+                        print(f"   [DATE] After click {i+1}, date is: {new_date}")
+                        
+                        # Check if we reached target
+                        if new_date == target_date:
+                            print(f"   [DATE] Successfully reached target via arrows")
+                            await asyncio.sleep(1.5)
+                            return True
+                        
+                        # If date didn't change, give up on arrow method
+                        if new_date == last_seen_date:
+                            print(f"   [DATE] Arrow method not working, switching to JS fallback...")
+                            break
+                        
+                        last_seen_date = new_date
+                    else:
+                        break
+                except Exception as e:
+                    print(f"   [DATE] Arrow click error: {e}")
+                    break
+            
+            # Fallback to JavaScript method
+            print(f"   [DATE] Arrow method failed or incomplete, using JS fallback...")
+            return await self._set_date_via_javascript(target_date)
+                
+        except Exception as e:
+            print(f"   [DATE] Navigation failed: {e}, trying JS fallback...")
+            return await self._set_date_via_javascript(target_date)
+
+    async def _set_date_via_javascript(self, target_date: str) -> bool:
+        """
+        Directly set date value using JavaScript and trigger Dash callbacks.
+        This is more reliable than clicking arrow buttons.
+        """
+        if not self.page:
+            return False
+        
+        try:
+            print(f"   [JS] Setting date to {target_date} via JavaScript...")
+            
+            # Method 1: Find the date input and set its value directly
+            # Then trigger all necessary events for Dash to detect the change
+            await self.page.evaluate("""
+                (targetDate) => {
+                    // Find the date input field
+                    const dateInput = document.querySelector('input[placeholder="Tanggal"]') || 
+                                     document.querySelector('#broksum-date') ||
+                                     document.querySelector('input[type="date"]');
+                    
+                    if (!dateInput) {
+                        console.error('Date input not found!');
+                        return false;
+                    }
+                    
+                    // Set the value
+                    dateInput.value = targetDate;
+                    
+                    // Trigger multiple events to ensure Dash catches the change
+                    const events = ['input', 'change', 'blur'];
+                    events.forEach(eventType => {
+                        const event = new Event(eventType, { bubbles: true, cancelable: true });
+                        dateInput.dispatchEvent(event);
+                    });
+                    
+                    // Also try triggering React's internal change handler if it exists
+                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+                        window.HTMLInputElement.prototype, 'value'
+                    ).set;
+                    nativeInputValueSetter.call(dateInput, targetDate);
+                    
+                    const inputEvent = new Event('input', { bubbles: true });
+                    dateInput.dispatchEvent(inputEvent);
+                    
+                    console.log('Date set to:', targetDate);
+                    return true;
+                }
+            """, target_date)
+            
+            # Wait for Dash to process the change
+            print(f"   [JS] Waiting for Dash to process date change...")
+            await asyncio.sleep(3)
+            
+            # Verify the date was set correctly
+            final_date = await self._get_broker_summary_date_value()
+            print(f"   [JS] Verification - date is now: {final_date}")
+            
+            if final_date == target_date:
+                print(f"   [JS] Successfully set date to {target_date}")
+                # Extra wait for data to load
+                await asyncio.sleep(2)
+                return True
+            else:
+                print(f"   [JS] Warning: Date mismatch after JS set. Expected {target_date}, got {final_date}")
+                # Try one more time with a different approach
+                await self.page.fill('input[placeholder="Tanggal"]', target_date)
+                await self.page.press('input[placeholder="Tanggal"]', 'Enter')
+                await asyncio.sleep(3)
+                
+                verify_date = await self._get_broker_summary_date_value()
+                if verify_date == target_date:
+                    print(f"   [JS] Successfully set date on second attempt")
+                    await asyncio.sleep(2)
+                    return True
+                else:
+                    print(f"   [JS] Failed to set date even with fill method")
+                    return False
+                
+        except Exception as e:
+            print(f"   [JS] JavaScript date setting failed: {e}")
+            return False
+
+    async def _wait_for_broker_summary_render(self):
+        if not self.page:
+            return
+        try:
+            await self.page.wait_for_selector('.dash-spreadsheet-inner.dash-loading', timeout=1500)
+            await self.page.wait_for_selector('.dash-spreadsheet-inner.dash-loading', state='hidden', timeout=20000)
+        except Exception:
+            pass
+        try:
+            await self.page.wait_for_selector('._dash-loading-callback', timeout=1500)
+            await self.page.wait_for_selector('._dash-loading-callback', state='hidden', timeout=20000)
+        except Exception:
+            pass
+        await asyncio.sleep(1.5)
+
     async def get_broker_summary(self, ticker: str, date_str: str):
         """
         Scrapes the Broker Summary table for a specific ticker and date.
@@ -399,64 +697,83 @@ class NeoBDMScraper:
             else:
                 print(f"   [SYNC] Already on {target_url}, skipping navigation.", flush=True)
 
-            # 1. Select Ticker
-            print(f"   [SYNC] Selecting ticker {ticker}...", flush=True)
-            try:
-                # Based on subagent success: click control, type, click option
-                await self.page.click('.Select-control', force=True)
+            # 1. Select Ticker using robust method
+            if not await self._select_ticker_robust(ticker):
+                print(f"   [ERROR] Failed to select ticker {ticker}")
+                return None
+
+            # CRITICAL: Store data fingerprint BEFORE changing date
+            previous_fingerprint = await self._get_data_fingerprint()
+            print(f"   [VERIFY] Previous data fingerprint: {previous_fingerprint}")
+
+            # 2. Navigate to Date using arrow buttons
+            print(f"   [SYNC] Navigating to date {date_str}...", flush=True)
+            if not await self._navigate_to_date_via_arrows(date_str):
+                actual_date = await self._get_broker_summary_date_value()
+                print(f"   [WARNING] Failed to navigate to {date_str}. Currently at: {actual_date}")
+                return None
+
+            # CRITICAL: Wait for Dash to process and fetch new data
+            #  Don't just wait for spinner to disappear, wait for DATA to change!
+            await self._wait_for_broker_summary_render()
+            
+            # Poll until data changes (up to 15 seconds)
+            print(f"   [WAIT] Polling until data changes for date {date_str}...")
+            data_changed = False
+            for poll_attempt in range(15):  # 15 attempts x 1sec = 15 seconds max
                 await asyncio.sleep(1)
-                await self.page.keyboard.type(ticker)
-                await asyncio.sleep(2)
+                current_fingerprint = await self._get_data_fingerprint()
                 
-                # Check for the option and click it
-                option_selector = f".Select-option:has-text('{ticker}')"
-                await self.page.wait_for_selector(option_selector, timeout=5000)
-                await self.page.click(option_selector, force=True)
-                print(f"   [SYNC] Successfully selected {ticker} from dropdown.")
-            except Exception as e:
-                print(f"   [WARNING] Ticker selection sequence issue: {e}. Trying simple Enter.")
-                await self.page.keyboard.press('Enter')
+                if current_fingerprint != previous_fingerprint:
+                    print(f"   [SUCCESS] Data changed after {poll_attempt+1} seconds!")
+                    print(f"   [VERIFY] New fingerprint: {current_fingerprint}")
+                    data_changed = True
+                    break
+                    
+                if poll_attempt % 3 == 0:  # Log every 3 seconds
+                    print(f"   [WAIT] Still waiting... ({poll_attempt+1}s)")
             
-            await asyncio.sleep(2)
-            # Click away to ensure dropdown is closed
-            await self.page.click('body', force=True)
-            await asyncio.sleep(1)
-
-            # 2. Set Date
-            print(f"   [SYNC] Setting date to {date_str}...", flush=True)
-            # Use evaluate to set the date value (as done by subagent)
-            await self.page.evaluate(f"""
-                (date) => {{
-                    const dateInput = document.getElementById('broksum-date');
-                    if (dateInput) {{
-                        dateInput.value = date;
-                        dateInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                        dateInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    }}
-                }}
-            """, date_str)
+            if not data_changed:
+                print(f"   [WARNING] Data did not change after 15 seconds!")
+                print(f"   [WARNING] Current fingerprint still: {current_fingerprint}")
+                print(f"   [RELOAD] Forcing full page reload to try again...")
+                
+                # Force reload as last resort
+                await self.page.goto(f"{self.base_url}/broker_summary/", wait_until='networkidle', timeout=60000)
+                await self.page.wait_for_selector('.Select-control', state='visible', timeout=20000)
+                await asyncio.sleep(3)
+                
+                # Re-select ticker
+                if not await self._select_ticker_robust(ticker):
+                    print(f"   [ERROR] Failed to re-select ticker {ticker} after reload")
+                    return None
+                
+                # Re-navigate to date using arrows
+                print(f"   [RELOAD] Re-navigating to date {date_str} after reload...")
+                if not await self._navigate_to_date_via_arrows(date_str):
+                    print(f"   [ERROR] Failed to navigate to date even after reload")
+                    return None
+                
+                await self._wait_for_broker_summary_render()
+                
+                # Poll again after reload
+                print(f"   [WAIT] Polling after reload...")
+                for poll_attempt in range(10):
+                    await asyncio.sleep(1)
+                    final_fingerprint = await self._get_data_fingerprint()
+                    
+                    if final_fingerprint != previous_fingerprint:
+                        print(f"   [SUCCESS] Data changed after reload! ({poll_attempt+1}s)")
+                        print(f"   [VERIFY] Final fingerprint: {final_fingerprint}")
+                        data_changed = True
+                        break
+                
+                if not data_changed:
+                    print(f"   [ERROR] Data still did not change even after reload!")
+                    print(f"   [ERROR] This date may not have data available: {date_str}")
+                    # Continue anyway and extract whatever is shown
             
-            # THE MAGIC NUDGE: Right Arrow (as discovered by subagent)
-            print("   [SYNC] Nudging with Right Arrow to trigger Dash update...")
-            await asyncio.sleep(2)
-            await self.page.click('#right-button', force=True)
-            await asyncio.sleep(5) 
-
-            # 3. Wait for data to load
-            print("  [LOADING] Waiting for data to render...")
-            
-            # Helper to check if any data row exists
-            async def data_present():
-                return await self.page.locator('.dash-cell').count() > 0
-
-            # Final check/wait
-            if not await data_present():
-                 print("   [LOADING] Data not yet present, trying one more nudge...")
-                 await self.page.click('#left-button', force=True)
-                 await asyncio.sleep(2)
-                 await self.page.click('#right-button', force=True)
-                 await asyncio.sleep(5)
-
+            # Extra safety wait
             await asyncio.sleep(2)
 
             # 4. Extract Data
@@ -613,6 +930,11 @@ class NeoBDMScraper:
                         })
                     else:
                         print(f"[!] Batch Sync: No data found for {ticker} on {date_str}")
+                        results.append({
+                            "ticker": ticker,
+                            "trade_date": date_str,
+                            "error": "No data found or date mismatch"
+                        })
                     
                     # Small cooldown between ticker/date changes to let Dash breathe
                     await asyncio.sleep(2)

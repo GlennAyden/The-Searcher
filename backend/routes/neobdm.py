@@ -166,6 +166,130 @@ async def get_neobdm_broker_summary(
         }
 
 
+@router.get("/neobdm-broker-summary/available-dates/{ticker}")
+async def get_broker_summary_available_dates(ticker: str):
+    """
+    Get list of available dates where broker summary data exists for a ticker.
+    
+    Args:
+        ticker: Stock ticker
+    
+    Returns:
+        List of dates with data available
+    """
+    from modules.database import DatabaseManager
+    db_manager = DatabaseManager()
+    
+    try:
+        dates = db_manager.get_available_dates_for_ticker(ticker.upper())
+        return {
+            "ticker": ticker.upper(),
+            "available_dates": dates,
+            "total_count": len(dates)
+        }
+    except Exception as e:
+        logging.error(f"Error fetching available dates for {ticker}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+
+class BrokerJourneyRequest(BaseModel):
+    ticker: str
+    brokers: List[str]
+    start_date: str
+    end_date: str
+
+
+@router.post("/neobdm-broker-summary/journey")
+async def get_broker_journey_data(request: BrokerJourneyRequest):
+    """
+    Get broker journey data showing accumulation/distribution over time.
+    
+    Request Body:
+        {
+            "ticker": "ANTM",
+            "brokers": ["YP", "RH", "OP"],
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-13"
+        }
+    
+    Returns:
+        Broker journey data with daily breakdown and cumulative tracking
+    """
+    from modules.database import DatabaseManager
+    db_manager = DatabaseManager()
+    
+    try:
+        if not request.brokers:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "At least one broker must be specified"}
+            )
+        
+        journey_data = db_manager.get_broker_journey(
+            request.ticker.upper(),
+            request.brokers,
+            request.start_date,
+            request.end_date
+        )
+        
+        return journey_data
+        
+    except Exception as e:
+        logging.error(f"Error fetching broker journey: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+
+@router.get("/neobdm-broker-summary/top-holders/{ticker}")
+async def get_top_holders(
+    ticker: str,
+    limit: int = Query(3, ge=1, le=10)
+):
+    """
+    Get top N holders for a ticker based on cumulative net lot.
+    
+    Args:
+        ticker: Stock ticker symbol
+        limit: Number of top holders to return (default 3, max 10)
+    
+    Returns:
+        {
+            "ticker": "ANTM",
+            "top_holders": [
+                {
+                    "broker_code": "YP",
+                    "total_net_lot": 150000,
+                    "total_net_value": 1250.5,
+                    "trade_count": 15,
+                    "first_date": "2026-01-01",
+                    "last_date": "2026-01-13"
+                },
+                ...
+            ]
+        }
+    """
+    from modules.database import DatabaseManager
+    db_manager = DatabaseManager()
+    
+    try:
+        top_holders = db_manager.get_top_holders_by_net_lot(ticker.upper(), limit)
+        return {
+            "ticker": ticker.upper(),
+            "top_holders": top_holders
+        }
+    except Exception as e:
+        logging.error(f"Error fetching top holders for {ticker}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+
 @router.get("/neobdm-dates")
 def get_neobdm_dates():
     """Get list of available scrape dates in database."""
@@ -489,7 +613,8 @@ async def perform_broker_summary_batch_sync(tasks: list):
     try:
         await scraper.init_browser(headless=True)
         results = await scraper.get_broker_summary_batch(tasks)
-        
+        success_count = 0
+        error_count = 0
         for res in results:
             if "error" not in res:
                 db_manager.save_broker_summary_batch(
@@ -498,8 +623,12 @@ async def perform_broker_summary_batch_sync(tasks: list):
                     buy_data=res['buy'],
                     sell_data=res['sell']
                 )
+                success_count += 1
+            else:
+                error_count += 1
+                logging.warning(f"[!] Batch Broker Summary error for {res.get('ticker')} on {res.get('trade_date')}: {res.get('error')}")
         
-        print(f"[*] Batch Broker Summary Sync completed. {len(results)} records processed.")
+        print(f"[*] Batch Broker Summary Sync completed. {success_count} saved, {error_count} errors.")
         
     except Exception as e:
         logging.error(f"Error in background batch broker summary sync: {e}")

@@ -32,6 +32,20 @@ export interface HotSignal {
     signals: SignalItem[];
 }
 
+export interface TopHolderItem {
+    broker_code: string;
+    total_net_lot: number;
+    total_net_value: number;
+    trade_count: number;
+    first_date: string;
+    last_date: string;
+}
+
+export interface TopHoldersResponse {
+    ticker: string;
+    top_holders: TopHolderItem[];
+}
+
 /**
  * NeoBDM API client
  */
@@ -179,6 +193,98 @@ export const neobdmApi = {
         if (!response.ok) {
             const errorData = await response.json();
             throw new Error(errorData.error || 'Failed to fetch volume data');
+        }
+        return await response.json();
+    },
+
+    /**
+     * Get available dates for a ticker (broker summary)
+     */
+    getAvailableDatesForTicker: async (ticker: string): Promise<{
+        ticker: string;
+        available_dates: string[];
+        total_count: number;
+    }> => {
+        const response = await fetch(`${API_BASE_URL}/api/neobdm-broker-summary/available-dates/${ticker}`);
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to fetch available dates');
+        }
+        return await response.json();
+    },
+
+    /**
+     * Get broker journey data (accumulation/distribution over time)
+     */
+    getBrokerJourney: async (
+        ticker: string,
+        brokers: string[],
+        startDate: string,
+        endDate: string
+    ): Promise<{
+        ticker: string;
+        date_range: { start: string; end: string };
+        brokers: Array<{
+            broker_code: string;
+            daily_data: Array<{
+                date: string;
+                buy_lot: number;
+                buy_value: number;
+                buy_avg_price: number;
+                sell_lot: number;
+                sell_value: number;
+                sell_avg_price: number;
+                net_lot: number;
+                net_value: number;
+                cumulative_net_lot: number;
+                cumulative_net_value: number;
+            }>;
+            summary: {
+                total_buy_lot: number;
+                total_buy_value: number;
+                total_sell_lot: number;
+                total_sell_value: number;
+                net_lot: number;
+                net_value: number;
+                avg_buy_price: number;
+                avg_sell_price: number;
+                days_active: number;
+                is_accumulating: boolean;
+            };
+        }>;
+    }> => {
+        const response = await fetch(`${API_BASE_URL}/api/neobdm-broker-summary/journey`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                ticker,
+                brokers,
+                start_date: startDate,
+                end_date: endDate
+            })
+        });
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to fetch broker journey');
+        }
+        return await response.json();
+    },
+
+    /**
+     * Get top N holders for a ticker based on cumulative net lot
+     */
+    getTopHolders: async (
+        ticker: string,
+        limit: number = 3
+    ): Promise<TopHoldersResponse> => {
+        const response = await fetch(
+            `${API_BASE_URL}/api/neobdm-broker-summary/top-holders/${ticker}?limit=${limit}`
+        );
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to fetch top holders');
         }
         return await response.json();
     }

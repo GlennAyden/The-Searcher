@@ -235,6 +235,220 @@ class NeoBDMRepository(BaseRepository):
         finally:
             conn.close()
     
+    def get_available_dates_for_ticker(self, ticker: str) -> List[str]:
+        """
+        Get all available dates where broker summary data exists for a ticker.
+        
+        Args:
+            ticker: Stock ticker symbol
+        
+        Returns:
+            List of date strings (YYYY-MM-DD) in descending order
+        """
+        conn = self._get_conn()
+        try:
+            query = """
+            SELECT DISTINCT trade_date 
+            FROM neobdm_broker_summaries 
+            WHERE UPPER(ticker) = UPPER(?)
+            ORDER BY trade_date DESC
+            """
+            df = pd.read_sql(query, conn, params=(ticker,))
+            return df['trade_date'].tolist() if not df.empty else []
+        finally:
+            conn.close()
+    
+    def get_broker_journey(
+        self, 
+        ticker: str,
+        brokers: List[str],
+        start_date: str,
+        end_date: str
+    ) -> Dict:
+        """
+        Get broker journey data showing accumulation/distribution patterns over time.
+        
+        Args:
+            ticker: Stock ticker symbol
+            brokers: List of broker codes to track
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+        
+        Returns:
+            Dictionary with broker journey data and summaries
+        """
+        conn = self._get_conn()
+        try:
+            # Query for all data in date range
+            query = """
+            SELECT trade_date, side, broker, nlot, nval, avg_price
+            FROM neobdm_broker_summaries
+            WHERE UPPER(ticker) = UPPER(?)
+              AND trade_date >= ?
+              AND trade_date <= ?
+              AND UPPER(broker) IN ({})
+            ORDER BY trade_date ASC, side ASC
+            """.format(','.join(['?'] * len(brokers)))
+            
+            params = [ticker, start_date, end_date] + [b.upper() for b in brokers]
+            df = pd.read_sql(query, conn, params=params)
+            
+            if df.empty:
+                return {
+                    "ticker": ticker,
+                    "date_range": {"start": start_date, "end": end_date},
+                    "brokers": []
+                }
+            
+            # Process each broker
+            broker_results = []
+            
+            for broker_code in brokers:
+                broker_df = df[df['broker'].str.upper() == broker_code.upper()]
+                
+                if broker_df.empty:
+                    continue  # Skip brokers with no activity
+                
+                # Group by date and aggregate buy/sell
+                daily_data = []
+                cumulative_net_lot = 0
+                cumulative_net_value = 0
+                
+                dates = sorted(broker_df['trade_date'].unique())
+                
+                for trade_date in dates:
+                    day_df = broker_df[broker_df['trade_date'] == trade_date]
+                    
+                    # Aggregate buy and sell
+                    buy_rows = day_df[day_df['side'] == 'BUY']
+                    sell_rows = day_df[day_df['side'] == 'SELL']
+                    
+                    # Convert all pandas/numpy types to Python native types immediately
+                    buy_lot = float(buy_rows['nlot'].sum()) if not buy_rows.empty else 0.0
+                    buy_value = float(buy_rows['nval'].sum()) if not buy_rows.empty else 0.0
+                    buy_avg = float(buy_rows['avg_price'].mean()) if not buy_rows.empty else 0.0
+                    
+                    sell_lot = float(sell_rows['nlot'].sum()) if not sell_rows.empty else 0.0
+                    sell_value = float(sell_rows['nval'].sum()) if not sell_rows.empty else 0.0
+                    sell_avg = float(sell_rows['avg_price'].mean()) if not sell_rows.empty else 0.0
+                    
+                    # Handle NaN values from pandas
+                    import math
+                    if math.isnan(buy_avg):
+                        buy_avg = 0.0
+                    if math.isnan(sell_avg):
+                        sell_avg = 0.0
+                    
+                    # Calculate net values
+                    net_lot = buy_lot - sell_lot
+                    net_value = buy_value - sell_value
+                    
+                    # Update cumulative
+                    cumulative_net_lot += net_lot
+                    cumulative_net_value += net_value
+                    
+                    daily_data.append({
+                        "date": trade_date,
+                        "buy_lot": int(buy_lot),
+                        "buy_value": round(buy_value, 2),
+                        "buy_avg_price": round(buy_avg, 0),
+                        "sell_lot": int(sell_lot),
+                        "sell_value": round(sell_value, 2),
+                        "sell_avg_price": round(sell_avg, 0),
+                        "net_lot": int(net_lot),
+                        "net_value": round(net_value, 2),
+                        "cumulative_net_lot": int(cumulative_net_lot),
+                        "cumulative_net_value": round(cumulative_net_value, 2)
+                    })
+                
+                # Calculate summary statistics
+                total_buy_lot = sum(d['buy_lot'] for d in daily_data)
+                total_buy_value = sum(d['buy_value'] for d in daily_data)
+                total_sell_lot = sum(d['sell_lot'] for d in daily_data)
+                total_sell_value = sum(d['sell_value'] for d in daily_data)
+                
+                summary = {
+                    "total_buy_lot": int(total_buy_lot),
+                    "total_buy_value": round(float(total_buy_value), 2),
+                    "total_sell_lot": int(total_sell_lot),
+                    "total_sell_value": round(float(total_sell_value), 2),
+                    "net_lot": int(cumulative_net_lot),
+                    "net_value": round(float(cumulative_net_value), 2),
+                    "avg_buy_price": round(total_buy_value / (total_buy_lot / 100) if total_buy_lot > 0 else 0, 0),
+                    "avg_sell_price": round(total_sell_value / (total_sell_lot / 100) if total_sell_lot > 0 else 0, 0),
+                    "days_active": len(daily_data),
+                    "is_accumulating": bool(cumulative_net_value > 0)  # Convert numpy.bool to Python bool
+                }
+                
+                broker_results.append({
+                    "broker_code": broker_code.upper(),
+                    "daily_data": daily_data,
+                    "summary": summary
+                })
+            
+            return {
+                "ticker": ticker,
+                "date_range": {"start": start_date, "end": end_date},
+                "brokers": broker_results
+            }
+        finally:
+            conn.close()
+    
+    def get_top_holders_by_net_lot(
+        self,
+        ticker: str,
+        limit: int = 3
+    ) -> List[Dict]:
+        """
+        Get top holders based on cumulative net lot across all dates.
+        
+        Args:
+            ticker: Stock ticker symbol
+            limit: Number of top holders to return (default 3)
+        
+        Returns:
+            List of dictionaries with broker_code, total_net_lot, total_net_value,
+            trade_count, first_date, last_date
+        """
+        conn = self._get_conn()
+        try:
+            query = """
+            SELECT 
+                broker,
+                SUM(CASE WHEN side='BUY' THEN nlot ELSE -nlot END) as total_net_lot,
+                SUM(CASE WHEN side='BUY' THEN nval ELSE -nval END) as total_net_value,
+                COUNT(DISTINCT trade_date) as trade_count,
+                MIN(trade_date) as first_date,
+                MAX(trade_date) as last_date
+            FROM neobdm_broker_summaries
+            WHERE UPPER(ticker) = UPPER(?)
+            GROUP BY broker
+            HAVING total_net_lot > 0
+            ORDER BY total_net_lot DESC
+            LIMIT ?
+            """
+            
+            df = pd.read_sql(query, conn, params=(ticker, limit))
+            
+            if df.empty:
+                return []
+            
+            # Convert to list of dicts with proper formatting
+            result = []
+            for _, row in df.iterrows():
+                result.append({
+                    'broker_code': row['broker'],
+                    'total_net_lot': int(row['total_net_lot']),
+                    'total_net_value': round(float(row['total_net_value']), 2),
+                    'trade_count': int(row['trade_count']),
+                    'first_date': row['first_date'],
+                    'last_date': row['last_date']
+                })
+            
+            return result
+        finally:
+            conn.close()
+    
     def get_neobdm_summaries(
         self,
         method: Optional[str] = None,

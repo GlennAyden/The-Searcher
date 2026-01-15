@@ -60,6 +60,8 @@ export const api = {
     getNeoBDMBrokerSummary: neobdmApi.getNeoBDMBrokerSummary,
     runNeoBDMBrokerSummaryBatch: neobdmApi.runNeoBDMBrokerSummaryBatch,
     getVolumeDaily: neobdmApi.getVolumeDaily,
+    getAvailableDatesForTicker: neobdmApi.getAvailableDatesForTicker,
+    getBrokerJourney: neobdmApi.getBrokerJourney,
 
     // Scraper APIs
     runScraper: scrapersApi.runScraper,
