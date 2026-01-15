@@ -176,6 +176,59 @@ class DatabaseConnection:
             );
         """)
 
+        # Broker 5% Watchlist (Manual CRUD)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS broker_five_percent (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                broker_code TEXT NOT NULL,
+                label TEXT,
+                created_at DATETIME DEFAULT (datetime('now')),
+                updated_at DATETIME DEFAULT (datetime('now'))
+            );
+        """)
+
+        # Migration: ensure broker_five_percent is per-ticker (no global unique broker_code)
+        try:
+            cursor = conn.execute("PRAGMA table_info(broker_five_percent)")
+            columns = [row[1] for row in cursor.fetchall()]
+            needs_rebuild = 'ticker' not in columns
+
+            if not needs_rebuild:
+                idx_cursor = conn.execute("PRAGMA index_list(broker_five_percent)")
+                for idx in idx_cursor.fetchall():
+                    idx_name = idx[1]
+                    is_unique = idx[2]
+                    if not is_unique:
+                        continue
+                    info = conn.execute(f"PRAGMA index_info('{idx_name}')").fetchall()
+                    idx_cols = [row[2] for row in info]
+                    if idx_cols == ['broker_code']:
+                        needs_rebuild = True
+                        break
+
+            if needs_rebuild:
+                conn.execute("DROP TABLE IF EXISTS broker_five_percent_old;")
+                conn.execute("ALTER TABLE broker_five_percent RENAME TO broker_five_percent_old;")
+                conn.execute("""
+                    CREATE TABLE broker_five_percent (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ticker TEXT NOT NULL,
+                        broker_code TEXT NOT NULL,
+                        label TEXT,
+                        created_at DATETIME DEFAULT (datetime('now')),
+                        updated_at DATETIME DEFAULT (datetime('now'))
+                    );
+                """)
+                conn.execute("""
+                    INSERT INTO broker_five_percent (ticker, broker_code, label, created_at, updated_at)
+                    SELECT '', broker_code, label, created_at, updated_at
+                    FROM broker_five_percent_old;
+                """)
+                conn.execute("DROP TABLE broker_five_percent_old;")
+        except sqlite3.OperationalError:
+            pass
+
         # Market Analytics Cache (OHLCV Data for Forecasting)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS market_analytics_cache (
@@ -233,6 +286,8 @@ class DatabaseConnection:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_neobdm_rec_symbol ON neobdm_records(symbol);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_neobdm_sum_lookup ON neobdm_summaries(method, period, scraped_at);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_neobdm_broker_lookup ON neobdm_broker_summaries(ticker, trade_date);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_broker_five_ticker ON broker_five_percent(ticker);")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_broker_five_unique ON broker_five_percent(ticker, broker_code);")
         
         # Market Metadata Indexes
         conn.execute("CREATE INDEX IF NOT EXISTS idx_market_meta_symbol ON market_metadata(symbol);")

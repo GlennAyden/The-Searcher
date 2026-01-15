@@ -22,6 +22,7 @@ import {
 import { cn } from '@/lib/utils';
 import { api as generalApi } from '@/services/api';
 import { neobdmApi } from '@/services/api/neobdm';
+import type { BrokerFiveItem } from '@/services/api/brokerFive';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 // Combine APIs for this page (neobdmApi has getTopHolders)
@@ -67,6 +68,15 @@ export default function BrokerSummaryPage() {
     const [topHolders, setTopHolders] = useState<any[]>([]);
     const [loadingTopHolders, setLoadingTopHolders] = useState(false);
 
+    // Broker 5% State
+    const [brokerFiveItems, setBrokerFiveItems] = useState<BrokerFiveItem[]>([]);
+    const [brokerFiveLoading, setBrokerFiveLoading] = useState(false);
+    const [brokerFiveSaving, setBrokerFiveSaving] = useState(false);
+    const [brokerFiveError, setBrokerFiveError] = useState<string | null>(null);
+    const [newBrokerFiveCode, setNewBrokerFiveCode] = useState('');
+    const [editingBrokerFiveId, setEditingBrokerFiveId] = useState<number | null>(null);
+    const [editingBrokerFiveCode, setEditingBrokerFiveCode] = useState('');
+
     const toNumber = (value: any) => {
         if (value === null || value === undefined) return 0;
         const num = Number(String(value).replace(/,/g, ''));
@@ -80,6 +90,13 @@ export default function BrokerSummaryPage() {
             maximumFractionDigits: digits
         });
     };
+
+    const sortBrokerFiveItems = (items: BrokerFiveItem[]) => {
+        return [...items].sort((a, b) => a.broker_code.localeCompare(b.broker_code));
+    };
+
+    const activeBrokerFiveTicker = ticker.trim().toUpperCase();
+    const canUseBrokerFive = activeBrokerFiveTicker.length >= 4 && !tickerError;
 
     const isWeekend = (date: Date): boolean => {
         const day = date.getDay();
@@ -222,6 +239,97 @@ export default function BrokerSummaryPage() {
         }
     };
 
+    const loadBrokerFive = async (targetTicker?: string) => {
+        const loadTicker = (targetTicker || activeBrokerFiveTicker).trim().toUpperCase();
+        if (loadTicker.length < 4 || tickerError) {
+            setBrokerFiveItems([]);
+            return;
+        }
+        setBrokerFiveLoading(true);
+        setBrokerFiveError(null);
+        try {
+            const data = await api.getBrokerFiveList(loadTicker);
+            setBrokerFiveItems(sortBrokerFiveItems(data.items || []));
+        } catch (err: any) {
+            setBrokerFiveError(err.message || "Failed to load Broker 5% list");
+        } finally {
+            setBrokerFiveLoading(false);
+        }
+    };
+
+    const handleAddBrokerFive = async () => {
+        const code = newBrokerFiveCode.trim().toUpperCase();
+        if (!canUseBrokerFive) {
+            setBrokerFiveError("Masukkan ticker yang valid terlebih dahulu.");
+            return;
+        }
+        if (!code) return;
+        setBrokerFiveSaving(true);
+        setBrokerFiveError(null);
+        try {
+            const data = await api.createBrokerFive({ ticker: activeBrokerFiveTicker, broker_code: code });
+            setBrokerFiveItems((prev) => sortBrokerFiveItems([...prev, data.item]));
+            setNewBrokerFiveCode('');
+        } catch (err: any) {
+            setBrokerFiveError(err.message || "Failed to add broker code");
+        } finally {
+            setBrokerFiveSaving(false);
+        }
+    };
+
+    const handleStartEditBrokerFive = (item: BrokerFiveItem) => {
+        setEditingBrokerFiveId(item.id);
+        setEditingBrokerFiveCode(item.broker_code);
+    };
+
+    const handleCancelEditBrokerFive = () => {
+        setEditingBrokerFiveId(null);
+        setEditingBrokerFiveCode('');
+    };
+
+    const handleSaveBrokerFive = async () => {
+        if (!editingBrokerFiveId) return;
+        if (!canUseBrokerFive) {
+            setBrokerFiveError("Masukkan ticker yang valid terlebih dahulu.");
+            return;
+        }
+        const code = editingBrokerFiveCode.trim().toUpperCase();
+        if (!code) return;
+        setBrokerFiveSaving(true);
+        setBrokerFiveError(null);
+        try {
+            const data = await api.updateBrokerFive(editingBrokerFiveId, { ticker: activeBrokerFiveTicker, broker_code: code });
+            setBrokerFiveItems((prev) =>
+                sortBrokerFiveItems(prev.map((item) => (item.id === editingBrokerFiveId ? data.item : item)))
+            );
+            handleCancelEditBrokerFive();
+        } catch (err: any) {
+            setBrokerFiveError(err.message || "Failed to update broker code");
+        } finally {
+            setBrokerFiveSaving(false);
+        }
+    };
+
+    const handleDeleteBrokerFive = async (id: number) => {
+        if (!canUseBrokerFive) {
+            setBrokerFiveError("Masukkan ticker yang valid terlebih dahulu.");
+            return;
+        }
+        setBrokerFiveSaving(true);
+        setBrokerFiveError(null);
+        try {
+            await api.deleteBrokerFive(id, activeBrokerFiveTicker);
+            setBrokerFiveItems((prev) => prev.filter((item) => item.id !== id));
+            if (editingBrokerFiveId === id) {
+                handleCancelEditBrokerFive();
+            }
+        } catch (err: any) {
+            setBrokerFiveError(err.message || "Failed to delete broker code");
+        } finally {
+            setBrokerFiveSaving(false);
+        }
+    };
+
     useEffect(() => {
         let isMounted = true;
         api.getIssuerTickers()
@@ -233,6 +341,17 @@ export default function BrokerSummaryPage() {
             isMounted = false;
         };
     }, []);
+
+    useEffect(() => {
+        if (!canUseBrokerFive) {
+            setBrokerFiveItems([]);
+            setEditingBrokerFiveId(null);
+            setEditingBrokerFiveCode('');
+            setBrokerFiveError(null);
+            return;
+        }
+        loadBrokerFive(activeBrokerFiveTicker);
+    }, [activeBrokerFiveTicker, tickerError]);
 
     useEffect(() => {
         if (!shouldValidateTicker) {
@@ -1012,6 +1131,154 @@ export default function BrokerSummaryPage() {
                         </div>
                     </div>
                 </div>
+
+                {/* BROKER 5% CRUD */}
+                <section className="bg-[#0c0c0e] border border-zinc-800/50 rounded-2xl p-5 shadow-lg">
+                    <div className="flex items-center justify-between gap-4 border-b border-zinc-800/60 pb-3 mb-4">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                                <Database className="w-4 h-4 text-blue-400" />
+                            </div>
+                            <div>
+                                <h3 className="text-sm font-bold tracking-tight">Broker 5%</h3>
+                                <p className="text-[10px] text-zinc-500 font-medium">Kelola kode broker untuk fokus 5%</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-zinc-500 font-bold">
+                                {canUseBrokerFive ? activeBrokerFiveTicker : 'Pilih ticker'}
+                            </span>
+                            <span className="text-[10px] text-zinc-600 font-bold">{brokerFiveItems.length} codes</span>
+                            <button
+                                onClick={() => loadBrokerFive(activeBrokerFiveTicker)}
+                                disabled={brokerFiveLoading || !canUseBrokerFive}
+                                className={cn(
+                                    "p-2 rounded-lg border border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-white transition-colors",
+                                    (brokerFiveLoading || !canUseBrokerFive) && "opacity-60 cursor-not-allowed"
+                                )}
+                            >
+                                <RefreshCcw className={cn("w-4 h-4", brokerFiveLoading && "animate-spin")} />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-4">
+                        <div className="space-y-3">
+                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Tambah kode broker</label>
+                            <div className="flex items-center gap-2 bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 focus-within:border-blue-500/50 transition-colors">
+                                <input
+                                    type="text"
+                                    value={newBrokerFiveCode}
+                                    onChange={(e) => setNewBrokerFiveCode(e.target.value.toUpperCase())}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleAddBrokerFive()}
+                                    placeholder="YP, PD, AK..."
+                                    className="bg-transparent border-none outline-none text-sm font-bold w-full uppercase placeholder:text-zinc-700 font-mono"
+                                    disabled={brokerFiveSaving || !canUseBrokerFive}
+                                />
+                                <button
+                                    onClick={handleAddBrokerFive}
+                                    disabled={brokerFiveSaving || !newBrokerFiveCode.trim() || !canUseBrokerFive}
+                                    className={cn(
+                                        "p-2 rounded-lg border transition-colors",
+                                        brokerFiveSaving || !newBrokerFiveCode.trim() || !canUseBrokerFive
+                                            ? "border-zinc-800 text-zinc-600 cursor-not-allowed"
+                                            : "border-blue-500/30 text-blue-400 hover:text-blue-300 hover:border-blue-500/60"
+                                    )}
+                                >
+                                    <Plus className="w-4 h-4" />
+                                </button>
+                            </div>
+                            {brokerFiveError && (
+                                <div className="text-[10px] text-red-400 font-bold px-1">{brokerFiveError}</div>
+                            )}
+                        </div>
+
+                        <div className="space-y-2">
+                            {!canUseBrokerFive ? (
+                                <div className="text-[10px] text-zinc-600 italic">Masukkan ticker valid untuk melihat daftar broker 5%.</div>
+                            ) : brokerFiveLoading && brokerFiveItems.length === 0 ? (
+                                <div className="text-[10px] text-zinc-600 italic">Loading broker list...</div>
+                            ) : brokerFiveItems.length === 0 ? (
+                                <div className="text-[10px] text-zinc-600 italic">Belum ada kode broker.</div>
+                            ) : (
+                                brokerFiveItems.map((item) => (
+                                    <div
+                                        key={item.id}
+                                        className="flex items-center justify-between gap-2 bg-zinc-900/40 border border-zinc-800/50 rounded-xl px-3 py-2"
+                                    >
+                                        {editingBrokerFiveId === item.id ? (
+                                            <input
+                                                type="text"
+                                                value={editingBrokerFiveCode}
+                                                onChange={(e) => setEditingBrokerFiveCode(e.target.value.toUpperCase())}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') handleSaveBrokerFive();
+                                                    if (e.key === 'Escape') handleCancelEditBrokerFive();
+                                                }}
+                                                className="bg-transparent border-none outline-none text-sm font-bold uppercase placeholder:text-zinc-700 font-mono flex-1"
+                                                autoFocus
+                                            />
+                                        ) : (
+                                            <span className="text-sm font-black font-mono text-zinc-200">{item.broker_code}</span>
+                                        )}
+
+                                        <div className="flex items-center gap-2">
+                                            {editingBrokerFiveId === item.id ? (
+                                                <>
+                                                    <button
+                                                        onClick={handleSaveBrokerFive}
+                                                        disabled={brokerFiveSaving || !editingBrokerFiveCode.trim()}
+                                                        className={cn(
+                                                            "px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors",
+                                                            brokerFiveSaving || !editingBrokerFiveCode.trim()
+                                                                ? "border-zinc-800 text-zinc-600 cursor-not-allowed"
+                                                                : "border-emerald-500/30 text-emerald-400 hover:text-emerald-300 hover:border-emerald-500/60"
+                                                        )}
+                                                    >
+                                                        Save
+                                                    </button>
+                                                    <button
+                                                        onClick={handleCancelEditBrokerFive}
+                                                        className="px-2 py-1 rounded-lg text-[10px] font-bold border border-zinc-800 text-zinc-500 hover:text-white hover:border-zinc-600 transition-colors"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <button
+                                                        onClick={() => handleStartEditBrokerFive(item)}
+                                                        disabled={brokerFiveSaving}
+                                                        className={cn(
+                                                            "px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors",
+                                                            brokerFiveSaving
+                                                                ? "border-zinc-800 text-zinc-600 cursor-not-allowed"
+                                                                : "border-blue-500/30 text-blue-400 hover:text-blue-300 hover:border-blue-500/60"
+                                                        )}
+                                                    >
+                                                        Edit
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteBrokerFive(item.id)}
+                                                        disabled={brokerFiveSaving}
+                                                        className={cn(
+                                                            "px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors",
+                                                            brokerFiveSaving
+                                                                ? "border-zinc-800 text-zinc-600 cursor-not-allowed"
+                                                                : "border-red-500/30 text-red-400 hover:text-red-300 hover:border-red-500/60"
+                                                        )}
+                                                    >
+                                                        Delete
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </section>
 
                 <section className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     {[

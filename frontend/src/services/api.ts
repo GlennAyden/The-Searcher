@@ -22,6 +22,7 @@ import { disclosuresApi, Disclosure } from './api/disclosures';
 import { neobdmApi } from './api/neobdm';
 import { scrapersApi } from './api/scrapers';
 import { forecastingApi } from './api/forecasting';
+import { brokerFiveApi } from './api/brokerFive';
 
 // Re-export types for backward compatibility
 export type { NewsItem, Disclosure };
@@ -62,6 +63,10 @@ export const api = {
     getVolumeDaily: neobdmApi.getVolumeDaily,
     getAvailableDatesForTicker: neobdmApi.getAvailableDatesForTicker,
     getBrokerJourney: neobdmApi.getBrokerJourney,
+    getBrokerFiveList: brokerFiveApi.getBrokerFiveList,
+    createBrokerFive: brokerFiveApi.createBrokerFive,
+    updateBrokerFive: brokerFiveApi.updateBrokerFive,
+    deleteBrokerFive: brokerFiveApi.deleteBrokerFive,
 
     // Scraper APIs
     runScraper: scrapersApi.runScraper,
@@ -76,5 +81,6 @@ export {
     disclosuresApi,
     neobdmApi,
     scrapersApi,
-    forecastingApi
+    forecastingApi,
+    brokerFiveApi
 };

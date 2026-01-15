@@ -22,6 +22,7 @@ from routes.scrapers import router as scrapers_router
 from routes.neobdm import router as neobdm_router
 from routes.running_trade import router as running_trade_router
 from routes.forecasting import router as forecasting_router
+from routes.broker_five import router as broker_five_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -86,6 +87,7 @@ app.include_router(scrapers_router)
 app.include_router(neobdm_router)
 app.include_router(running_trade_router)
 app.include_router(forecasting_router, prefix="/api")
+app.include_router(broker_five_router)
 
 
 if __name__ == "__main__":

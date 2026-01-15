@@ -25,6 +25,7 @@ from .disclosures import router as disclosures_router
 from .neobdm import router as neobdm_router
 from .running_trade import router as running_trade_router
 from .scrapers import router as scrapers_router
+from .broker_five import router as broker_five_router
 
 __all__ = [
     "dashboard_router",
@@ -32,5 +33,6 @@ __all__ = [
     "disclosures_router",
     "neobdm_router",
     "running_trade_router",
-    "scrapers_router"
+    "scrapers_router",
+    "broker_five_router"
 ]

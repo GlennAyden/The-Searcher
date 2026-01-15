@@ -24,6 +24,7 @@ from .news_repository import NewsRepository
 from .disclosure_repository import DisclosureRepository
 from .neobdm_repository import NeoBDMRepository
 from .running_trade_repository import RunningTradeRepository
+from .broker_five_repository import BrokerFiveRepository
 
 __all__ = [
     "BaseRepository",
@@ -31,5 +32,6 @@ __all__ = [
     "NewsRepository",
     "DisclosureRepository",
     "NeoBDMRepository",
-    "RunningTradeRepository"
+    "RunningTradeRepository",
+    "BrokerFiveRepository"
 ]
