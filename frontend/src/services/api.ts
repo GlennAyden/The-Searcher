@@ -23,6 +23,7 @@ import { neobdmApi } from './api/neobdm';
 import { scrapersApi } from './api/scrapers';
 import { forecastingApi } from './api/forecasting';
 import { brokerFiveApi } from './api/brokerFive';
+import { doneDetailApi } from './api/doneDetail';
 
 // Re-export types for backward compatibility
 export type { NewsItem, Disclosure };
@@ -82,5 +83,6 @@ export {
     neobdmApi,
     scrapersApi,
     forecastingApi,
-    brokerFiveApi
+    brokerFiveApi,
+    doneDetailApi
 };

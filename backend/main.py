@@ -20,9 +20,10 @@ from routes.news import router as news_router
 from routes.disclosures import router as disclosures_router
 from routes.scrapers import router as scrapers_router
 from routes.neobdm import router as neobdm_router
-from routes.running_trade import router as running_trade_router
+
 from routes.forecasting import router as forecasting_router
 from routes.broker_five import router as broker_five_router
+from routes.done_detail import router as done_detail_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -73,7 +74,8 @@ async def health_check():
             "news": "News aggregation with AI insights",
             "disclosures": "IDX disclosures and RAG chat",
             "neobdm": "Market maker and fund flow analysis",
-            "running_trade": "Real-time trade monitoring",
+
+            "done_detail": "Done detail visualization and broker flow",
             "scrapers": "Automated data collection"
         }
     }
@@ -85,9 +87,10 @@ app.include_router(news_router)
 app.include_router(disclosures_router)
 app.include_router(scrapers_router)
 app.include_router(neobdm_router)
-app.include_router(running_trade_router)
+
 app.include_router(forecasting_router, prefix="/api")
 app.include_router(broker_five_router)
+app.include_router(done_detail_router)
 
 
 if __name__ == "__main__":

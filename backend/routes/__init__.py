@@ -8,7 +8,7 @@ Each router handles a specific domain of functionality:
 - news_router: News articles and sentiment analysis endpoints  
 - disclosures_router: IDX disclosures and RAG chat endpoints
 - neobdm_router: Market maker and fund flow analysis endpoints
-- running_trade_router: Real-time trade monitoring endpoints
+
 - scrapers_router: Data scraping trigger endpoints
 
 Usage:
@@ -23,7 +23,7 @@ from .dashboard import router as dashboard_router
 from .news import router as news_router
 from .disclosures import router as disclosures_router
 from .neobdm import router as neobdm_router
-from .running_trade import router as running_trade_router
+
 from .scrapers import router as scrapers_router
 from .broker_five import router as broker_five_router
 
@@ -32,7 +32,7 @@ __all__ = [
     "news_router", 
     "disclosures_router",
     "neobdm_router",
-    "running_trade_router",
+
     "scrapers_router",
     "broker_five_router"
 ]

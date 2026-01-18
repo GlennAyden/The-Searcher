@@ -10,6 +10,7 @@ export * from './news';
 export * from './disclosures';
 export * from './neobdm';
 export * from './brokerFive';
+export * from './doneDetail';
 
 export * from './forecasting';
 
@@ -21,6 +22,7 @@ import { neobdmApi } from './neobdm';
 import { scrapersApi } from './scrapers';
 import { forecastingApi } from './forecasting';
 import { brokerFiveApi } from './brokerFive';
+import { doneDetailApi } from './doneDetail';
 
 const api = {
     ...dashboardApi,
@@ -29,7 +31,8 @@ const api = {
     ...neobdmApi,
     ...scrapersApi,
     ...forecastingApi,
-    ...brokerFiveApi
+    ...brokerFiveApi,
+    ...doneDetailApi
 };
 
 export {
@@ -40,5 +43,6 @@ export {
     scrapersApi,
     forecastingApi,
     brokerFiveApi,
+    doneDetailApi,
     api
 };

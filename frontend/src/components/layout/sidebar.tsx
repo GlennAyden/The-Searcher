@@ -11,12 +11,11 @@ import {
     TrendingUp,
     ChevronLeft,
     ChevronRight,
-    Activity,
     LineChart,
     BarChart3,
-    History,
     Zap,
-    ArrowRightLeft
+    ArrowRightLeft,
+    ClipboardList
 } from 'lucide-react';
 import { ScraperControl } from './scraper-control';
 
@@ -34,14 +33,8 @@ const navGroups = [
             { icon: BarChart3, label: 'Market Summary', href: '/neobdm-summary' },
             { icon: ArrowRightLeft, label: 'Broker Summary', href: '/broker-summary' },
             { icon: LineChart, label: 'Flow Tracker', href: '/neobdm-tracker' },
+            { icon: ClipboardList, label: 'Done Detail', href: '/done-detail' },
             { icon: Zap, label: 'Forecasting', href: '/forecasting' },
-        ]
-    },
-    {
-        title: 'Real-Time Trading',
-        items: [
-            { icon: Activity, label: 'Live Tape', href: '/running-trade' },
-            { icon: History, label: 'RT History', href: '/running-trade/analysis' },
         ]
     },
     {

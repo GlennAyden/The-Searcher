@@ -296,4 +296,24 @@ class DatabaseConnection:
         # Volume Daily Indexes
         conn.execute("CREATE INDEX IF NOT EXISTS idx_volume_ticker_date ON volume_daily_records(ticker, trade_date DESC);")
         
+        # Done Detail Records (Paste-based trade data)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS done_detail_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                trade_date TEXT NOT NULL,
+                trade_time TEXT,
+                board TEXT,
+                price REAL,
+                qty INTEGER,
+                buyer_type TEXT,
+                buyer_code TEXT,
+                seller_code TEXT,
+                seller_type TEXT,
+                created_at DATETIME DEFAULT (datetime('now'))
+            );
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_done_detail_lookup ON done_detail_records(ticker, trade_date);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_done_detail_time ON done_detail_records(ticker, trade_date, trade_time);")
+        
         conn.commit()
