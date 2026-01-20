@@ -287,5 +287,45 @@ export const neobdmApi = {
             throw new Error(errorData.error || 'Failed to fetch top holders');
         }
         return await response.json();
+    },
+
+    /**
+     * Get floor price analysis based on institutional broker buy prices
+     */
+    getFloorPriceAnalysis: async (
+        ticker: string,
+        days: number = 30
+    ): Promise<FloorPriceAnalysis> => {
+        const response = await fetch(
+            `${API_BASE_URL}/api/neobdm-broker-summary/floor-price/${ticker}?days=${days}`
+        );
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to fetch floor price analysis');
+        }
+        return await response.json();
     }
 };
+
+export interface FloorPriceBroker {
+    code: string;
+    total_lot: number;
+    total_value: number;
+    avg_price: number;
+    trade_count: number;
+}
+
+export interface FloorPriceAnalysis {
+    ticker: string;
+    floor_price: number;
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NO_DATA' | 'ERROR';
+    institutional_buy_value: number;
+    institutional_buy_lot: number;
+    foreign_buy_value?: number;
+    foreign_buy_lot?: number;
+    institutional_brokers: FloorPriceBroker[];
+    foreign_brokers: FloorPriceBroker[];
+    days_analyzed: number;
+    latest_date: string | null;
+    error?: string;
+}

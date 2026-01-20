@@ -26,28 +26,234 @@ export interface SavedHistory {
     created_at: string;
 }
 
-export interface SankeyNode {
-    name: string;
-    type: 'seller' | 'buyer';
+export interface AccumDistAnalysis {
+    status: 'AKUMULASI' | 'DISTRIBUSI' | 'NETRAL' | 'NO_DATA' | 'ERROR';
+    retail_net_lot: number;
+    institutional_net_lot: number;
+    foreign_net_lot: number;
+    retail_brokers: { code: string; net_lot: number }[];
+    institutional_brokers: { code: string; net_lot: number }[];
+    foreign_brokers: { code: string; net_lot: number }[];
+    total_volume: number;
+    error?: string;
 }
 
-export interface SankeyLink {
-    source: number;
-    target: number;
+export interface DateRangeInfo {
+    min_date: string | null;
+    max_date: string | null;
+    dates: string[];
+}
+
+// All trades structure (raw data)
+export interface TradeRecord {
+    trade_date: string;
+    trade_time: string;
+    buyer_code: string;
+    buyer_name: string;
+    seller_code: string;
+    seller_name: string;
+    qty: number;
+    price: number;
     value: number;
-    lot: number;
-    val: number;
+    is_imposter: boolean;
+    imposter_side: 'BUY' | 'SELL' | 'BOTH' | null;
+    imposter_broker: string | null;
 }
 
-export interface SankeyData {
-    nodes: SankeyNode[];
-    links: SankeyLink[];
+// Imposter trade (when detected)
+export interface ImposterTrade {
+    trade_date: string;
+    trade_time: string;
+    broker_code: string;
+    broker_name: string;
+    direction: 'BUY' | 'SELL';
+    qty: number;
+    price: number;
+    value: number;
+    counterparty: string;
+    level: 'STRONG' | 'POSSIBLE';
+    percentile: number;
+    broker_type: 'retail' | 'mixed';
 }
 
-export interface InventoryData {
-    brokers: string[];
-    timeSeries: Array<{ time: string;[broker: string]: string | number }>;
-    priceData: Array<{ time: string; price: number }>;
+export interface ImposterBrokerStats {
+    broker: string;
+    name: string;
+    count: number;
+    buy_count: number;
+    sell_count: number;
+    total_value: number;
+    total_lot: number;
+    strong_count: number;
+    possible_count: number;
+}
+
+export interface ImposterAnalysis {
+    ticker: string;
+    date_range: { start: string; end: string };
+    total_transactions: number;
+    imposter_count: number;
+    thresholds: {
+        p95: number;
+        p99: number;
+        median: number;
+        mean: number;
+    };
+    all_trades: TradeRecord[];
+    imposter_trades: ImposterTrade[];
+    by_broker: ImposterBrokerStats[];
+    summary: {
+        total_value: number;
+        total_lot: number;
+        imposter_value: number;
+        imposter_lot: number;
+        imposter_percentage: number;
+        strong_count: number;
+        possible_count: number;
+    };
+    error?: string;
+}
+
+// Speed Analysis interfaces
+export interface SpeedBrokerStats {
+    broker: string;
+    name: string;
+    total_trades: number;
+    buy_trades: number;
+    sell_trades: number;
+    total_value: number;
+    seconds_active: number;
+    trades_per_second: number;
+}
+
+export interface BurstEvent {
+    trade_time: string;
+    trade_count: number;
+}
+
+export interface TimelinePoint {
+    time: string;
+    trades: number;
+}
+
+export interface SpeedAnalysis {
+    ticker: string;
+    date_range: { start: string; end: string };
+    speed_by_broker: SpeedBrokerStats[];
+    burst_events: BurstEvent[];
+    timeline: TimelinePoint[];
+    summary: {
+        total_trades: number;
+        unique_seconds: number;
+        avg_trades_per_second: number;
+        max_trades_per_second: number;
+        peak_time: string | null;
+    };
+    error?: string;
+}
+
+// Combined Analysis interfaces (merges Impostor + Speed)
+export interface SignalInfo {
+    direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+    level: 'STRONG' | 'MODERATE' | 'WEAK' | 'NEUTRAL';
+    confidence: number;
+    description: string;
+}
+
+export interface ImpostorFlow {
+    buy_value: number;
+    sell_value: number;
+    net_value: number;
+    buy_count: number;
+    sell_count: number;
+    buy_pct: number;
+    sell_pct: number;
+}
+
+export interface PowerBroker {
+    broker_code: string;
+    broker_name: string;
+    broker_type: string;
+    impostor_value: number;
+    impostor_count: number;
+    strong_count: number;
+    possible_count: number;
+    speed_trades: number;
+    speed_tps: number;
+    net_direction: 'BUY' | 'SELL';
+    net_value: number;
+    buy_value: number;
+    sell_value: number;
+}
+
+export interface KeyMetrics {
+    strong_impostor_count: number;
+    possible_impostor_count: number;
+    total_impostor_value: number;
+    avg_tps: number;
+    max_tps: number;
+    peak_time: string | null;
+    burst_count: number;
+    total_trades: number;
+}
+
+export interface TimelinePointWithBurst {
+    time: string;
+    trades: number;
+    has_burst: boolean;
+}
+
+export interface CombinedAnalysis {
+    ticker: string;
+    date_range: { start: string; end: string };
+    signal: SignalInfo;
+    impostor_flow: ImpostorFlow;
+    power_brokers: PowerBroker[];
+    key_metrics: KeyMetrics;
+    timeline: TimelinePointWithBurst[];
+    burst_events: BurstEvent[];
+    thresholds: {
+        p95: number;
+        p99: number;
+        median: number;
+        mean: number;
+    };
+    imposter_analysis?: ImposterAnalysis;
+    speed_analysis?: SpeedAnalysis;
+    error?: string;
+}
+
+export interface BrokerProfile {
+    broker: string;
+    name: string;
+    found: boolean;
+    summary: {
+        buy_value: number;
+        sell_value: number;
+        net_value: number;
+        buy_freq: number;
+        sell_freq: number;
+        avg_buy_price: number;
+        avg_sell_price: number;
+    };
+    hourly_stats: {
+        hour: string;
+        buy_val: number;
+        sell_val: number;
+        freq: number;
+    }[];
+    counterparties: {
+        top_sellers: { broker: string; type: string; value: number }[];
+        top_buyers: { broker: string; type: string; value: number }[];
+    };
+    recent_trades: {
+        time: string;
+        price: number;
+        qty: number;
+        value: number;
+        action: 'BUY' | 'SELL';
+        counterparty: string;
+    }[];
 }
 
 export const doneDetailApi = {
@@ -112,18 +318,66 @@ export const doneDetailApi = {
     },
 
     /**
-     * Get Sankey diagram data
+     * Get Accumulation/Distribution analysis based on broker classification
      */
-    getSankeyData: async (ticker: string, tradeDate: string): Promise<SankeyData> => {
-        const response = await fetch(`${API_BASE_URL}/api/done-detail/sankey/${ticker}/${tradeDate}`);
+    getAccumDistAnalysis: async (ticker: string, tradeDate: string): Promise<AccumDistAnalysis> => {
+        const response = await fetch(`${API_BASE_URL}/api/done-detail/analysis/${ticker}/${tradeDate}`);
         return await response.json();
     },
 
     /**
-     * Get Daily Inventory chart data
+     * Get list of tickers that have saved Done Detail data
      */
-    getInventoryData: async (ticker: string, tradeDate: string, interval: number = 1): Promise<InventoryData> => {
-        const response = await fetch(`${API_BASE_URL}/api/done-detail/inventory/${ticker}/${tradeDate}?interval=${interval}`);
+    getTickers: async (): Promise<{ tickers: string[] }> => {
+        const response = await fetch(`${API_BASE_URL}/api/done-detail/tickers`);
+        return await response.json();
+    },
+
+    /**
+     * Get available date range for a ticker
+     */
+    getDateRange: async (ticker: string): Promise<DateRangeInfo> => {
+        const response = await fetch(`${API_BASE_URL}/api/done-detail/dates/${ticker}`);
+        return await response.json();
+    },
+
+    /**
+     * Get Imposter Detection analysis
+     * Returns all trades + imposter detection (value > 1B Rupiah from retail brokers)
+     */
+    getImposterAnalysis: async (ticker: string, startDate: string, endDate: string): Promise<ImposterAnalysis> => {
+        const response = await fetch(
+            `${API_BASE_URL}/api/done-detail/imposter/${ticker}?start_date=${startDate}&end_date=${endDate}`
+        );
+        return await response.json();
+    },
+
+    /**
+     * Get Speed Analysis
+     * Analyzes trading speed, burst patterns, and broker frequency
+     */
+    getSpeedAnalysis: async (ticker: string, startDate: string, endDate: string): Promise<SpeedAnalysis> => {
+        const response = await fetch(
+            `${API_BASE_URL}/api/done-detail/speed/${ticker}?start_date=${startDate}&end_date=${endDate}`
+        );
+        return await response.json();
+    },
+
+    /**
+     * Get Combined Analysis
+     * Merges Impostor and Speed data for trading signals
+     */
+    getCombinedAnalysis: async (ticker: string, startDate: string, endDate: string): Promise<CombinedAnalysis> => {
+        const response = await fetch(
+            `${API_BASE_URL}/api/done-detail/combined/${ticker}?start_date=${startDate}&end_date=${endDate}`
+        );
+        return await response.json();
+    },
+
+    getBrokerProfile: async (ticker: string, brokerCode: string, startDate: string, endDate: string): Promise<BrokerProfile> => {
+        const response = await fetch(
+            `${API_BASE_URL}/api/done-detail/broker/${ticker}/${brokerCode}?start_date=${startDate}&end_date=${endDate}`
+        );
         return await response.json();
     }
 };

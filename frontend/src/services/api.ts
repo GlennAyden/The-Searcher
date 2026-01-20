@@ -24,6 +24,7 @@ import { scrapersApi } from './api/scrapers';
 import { forecastingApi } from './api/forecasting';
 import { brokerFiveApi } from './api/brokerFive';
 import { doneDetailApi } from './api/doneDetail';
+import { priceVolumeApi } from './api/priceVolume';
 
 // Re-export types for backward compatibility
 export type { NewsItem, Disclosure };
@@ -84,5 +85,6 @@ export {
     scrapersApi,
     forecastingApi,
     brokerFiveApi,
-    doneDetailApi
+    doneDetailApi,
+    priceVolumeApi
 };

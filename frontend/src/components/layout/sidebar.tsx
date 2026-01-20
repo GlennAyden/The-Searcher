@@ -15,7 +15,8 @@ import {
     BarChart3,
     Zap,
     ArrowRightLeft,
-    ClipboardList
+    ClipboardList,
+    CandlestickChart
 } from 'lucide-react';
 import { ScraperControl } from './scraper-control';
 
@@ -35,6 +36,12 @@ const navGroups = [
             { icon: LineChart, label: 'Flow Tracker', href: '/neobdm-tracker' },
             { icon: ClipboardList, label: 'Done Detail', href: '/done-detail' },
             { icon: Zap, label: 'Forecasting', href: '/forecasting' },
+        ]
+    },
+    {
+        title: 'Price Volume Analysis',
+        items: [
+            { icon: CandlestickChart, label: 'Price & Volume', href: '/price-volume' },
         ]
     },
     {

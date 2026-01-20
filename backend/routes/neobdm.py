@@ -290,6 +290,44 @@ async def get_top_holders(
         )
 
 
+@router.get("/neobdm-broker-summary/floor-price/{ticker}")
+async def get_floor_price_analysis(
+    ticker: str,
+    days: int = Query(30, ge=0, le=365, description="Number of days (0 = all data)")
+):
+    """
+    Get floor price analysis based on institutional broker buy prices.
+    
+    Args:
+        ticker: Stock ticker symbol
+        days: Number of days to analyze (default 30, range 7-90)
+    
+    Returns:
+        {
+            "ticker": "ANTM",
+            "floor_price": 1450,
+            "confidence": "HIGH" | "MEDIUM" | "LOW" | "NO_DATA",
+            "institutional_buy_value": 125.5,
+            "institutional_buy_lot": 15000,
+            "institutional_brokers": [...],
+            "foreign_brokers": [...],
+            "days_analyzed": 15
+        }
+    """
+    from modules.database import DatabaseManager
+    db_manager = DatabaseManager()
+    
+    try:
+        analysis = db_manager.get_floor_price_analysis(ticker.upper(), days)
+        return analysis
+    except Exception as e:
+        logging.error(f"Error fetching floor price for {ticker}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+
 @router.get("/neobdm-dates")
 def get_neobdm_dates():
     """Get list of available scrape dates in database."""

@@ -275,7 +275,7 @@ class NeoBDMRepository(BaseRepository):
             end_date: End date (YYYY-MM-DD)
         
         Returns:
-            Dictionary with broker journey data and summaries
+            Dictionary with broker journey data, summaries, and price data
         """
         conn = self._get_conn()
         try:
@@ -293,11 +293,44 @@ class NeoBDMRepository(BaseRepository):
             params = [ticker, start_date, end_date] + [b.upper() for b in brokers]
             df = pd.read_sql(query, conn, params=params)
             
+            # Fetch price data from yfinance via MarketData module
+            price_data = []
+            try:
+                from modules.market_data import MarketData
+                market_data = MarketData()
+                
+                # Calculate days from start_date to today for fetching
+                from datetime import datetime
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+                today = datetime.now()
+                days_diff = (today - start_dt).days + 30  # Extra buffer for weekends/holidays
+                
+                # Fetch OHLCV data
+                ohlcv_df = market_data.fetch_ohlcv(ticker, days=max(days_diff, 60))
+                
+                if not ohlcv_df.empty:
+                    # Filter to date range
+                    ohlcv_df.index = pd.to_datetime(ohlcv_df.index)
+                    mask = (ohlcv_df.index >= start_date) & (ohlcv_df.index <= end_date)
+                    filtered_df = ohlcv_df.loc[mask]
+                    
+                    for date_val, row in filtered_df.iterrows():
+                        date_str = date_val.strftime('%Y-%m-%d')
+                        close_price = float(row['close']) if 'close' in row else 0.0
+                        price_data.append({
+                            "date": date_str,
+                            "close_price": round(close_price, 0)
+                        })
+            except Exception as e:
+                print(f"[WARNING] Failed to fetch price data for {ticker}: {e}")
+                # Continue without price data - broker journey still works
+            
             if df.empty:
                 return {
                     "ticker": ticker,
                     "date_range": {"start": start_date, "end": end_date},
-                    "brokers": []
+                    "brokers": [],
+                    "price_data": price_data
                 }
             
             # Process each broker
@@ -389,10 +422,12 @@ class NeoBDMRepository(BaseRepository):
             return {
                 "ticker": ticker,
                 "date_range": {"start": start_date, "end": end_date},
-                "brokers": broker_results
+                "brokers": broker_results,
+                "price_data": price_data
             }
         finally:
             conn.close()
+
     
     def get_top_holders_by_net_lot(
         self,
@@ -446,6 +481,194 @@ class NeoBDMRepository(BaseRepository):
                 })
             
             return result
+        finally:
+            conn.close()
+    
+    def get_floor_price_analysis(self, ticker: str, days: int = 30) -> Dict:
+        """
+        Calculate floor price estimate based on institutional broker buy prices.
+        
+        Floor Price = Weighted average of buy prices for institutional brokers.
+        
+        Args:
+            ticker: Stock ticker symbol
+            days: Number of days to analyze (default 30)
+        
+        Returns:
+            Dict with floor_price, confidence, and breakdown by broker
+        """
+        import os
+        import config
+        
+        conn = self._get_conn()
+        try:
+            # Load broker classification
+            broker_file = os.path.join(config.DATA_DIR, "brokers_idx.json")
+            with open(broker_file, 'r', encoding='utf-8') as f:
+                broker_data = json.load(f)
+            
+            # Build category lookup
+            broker_categories = {}
+            for broker in broker_data.get('brokers', []):
+                code = broker.get('code', '')
+                categories = broker.get('category', ['unknown'])
+                broker_categories[code] = categories
+            
+            # Get broker summary data for the ticker over the date range
+            # If days=0, get all available data
+            if days == 0:
+                query = """
+                SELECT broker, nlot, nval, avg_price, trade_date
+                FROM neobdm_broker_summaries
+                WHERE UPPER(ticker) = UPPER(?) AND side = 'BUY'
+                ORDER BY trade_date DESC
+                """
+                params = (ticker,)
+            else:
+                query = """
+                SELECT broker, nlot, nval, avg_price, trade_date
+                FROM neobdm_broker_summaries
+                WHERE UPPER(ticker) = UPPER(?) AND side = 'BUY'
+                  AND trade_date >= date('now', ?)
+                ORDER BY trade_date DESC
+                """
+                params = (ticker, f'-{days} days')
+            df = pd.read_sql(query, conn, params=params)
+            
+            if df.empty:
+                return {
+                    "ticker": ticker.upper(),
+                    "floor_price": 0,
+                    "confidence": "NO_DATA",
+                    "institutional_buy_value": 0,
+                    "institutional_buy_lot": 0,
+                    "institutional_brokers": [],
+                    "foreign_brokers": [],
+                    "days_analyzed": 0,
+                    "latest_date": None
+                }
+            
+            # Calculate institutional and foreign broker statistics
+            institutional_value = 0
+            institutional_lot = 0
+            foreign_value = 0
+            foreign_lot = 0
+            
+            institutional_brokers = {}
+            foreign_brokers = {}
+            
+            for _, row in df.iterrows():
+                broker_code = row['broker']
+                nlot = float(row['nlot']) if row['nlot'] else 0
+                nval = float(row['nval']) if row['nval'] else 0  # Value in billions
+                avg_price = float(row['avg_price']) if row['avg_price'] else 0
+                
+                categories = broker_categories.get(broker_code, ['unknown'])
+                
+                if 'institutional' in categories:
+                    institutional_value += nval
+                    institutional_lot += nlot
+                    
+                    if broker_code not in institutional_brokers:
+                        institutional_brokers[broker_code] = {
+                            'code': broker_code,
+                            'total_lot': 0,
+                            'total_value': 0,
+                            'avg_price': 0,
+                            'trade_count': 0
+                        }
+                    institutional_brokers[broker_code]['total_lot'] += nlot
+                    institutional_brokers[broker_code]['total_value'] += nval
+                    institutional_brokers[broker_code]['trade_count'] += 1
+                    
+                if 'foreign' in categories:
+                    foreign_value += nval
+                    foreign_lot += nlot
+                    
+                    if broker_code not in foreign_brokers:
+                        foreign_brokers[broker_code] = {
+                            'code': broker_code,
+                            'total_lot': 0,
+                            'total_value': 0,
+                            'avg_price': 0,
+                            'trade_count': 0
+                        }
+                    foreign_brokers[broker_code]['total_lot'] += nlot
+                    foreign_brokers[broker_code]['total_value'] += nval
+                    foreign_brokers[broker_code]['trade_count'] += 1
+            
+            # Calculate average prices for each broker
+            for broker_data_item in institutional_brokers.values():
+                if broker_data_item['total_lot'] > 0:
+                    # Value is in billions, lot is in lot (100 shares per lot)
+                    # avg_price = (value * 1e9) / (lot * 100)
+                    broker_data_item['avg_price'] = round(
+                        (broker_data_item['total_value'] * 1e9) / (broker_data_item['total_lot'] * 100), 0
+                    )
+            
+            for broker_data_item in foreign_brokers.values():
+                if broker_data_item['total_lot'] > 0:
+                    broker_data_item['avg_price'] = round(
+                        (broker_data_item['total_value'] * 1e9) / (broker_data_item['total_lot'] * 100), 0
+                    )
+            
+            # Calculate floor price (weighted average of institutional buy prices)
+            floor_price = 0
+            if institutional_lot > 0:
+                # Value is in billions, lot is in lot (100 shares per lot)
+                floor_price = round((institutional_value * 1e9) / (institutional_lot * 100), 0)
+            
+            # Determine confidence level
+            unique_dates = df['trade_date'].nunique()
+            if institutional_lot == 0:
+                confidence = "NO_DATA"
+            elif unique_dates >= 10 and institutional_lot > 10000:
+                confidence = "HIGH"
+            elif unique_dates >= 5 and institutional_lot > 5000:
+                confidence = "MEDIUM"
+            else:
+                confidence = "LOW"
+            
+            # Sort and limit broker lists
+            inst_broker_list = sorted(
+                list(institutional_brokers.values()), 
+                key=lambda x: x['total_lot'], 
+                reverse=True
+            )[:10]
+            
+            foreign_broker_list = sorted(
+                list(foreign_brokers.values()), 
+                key=lambda x: x['total_lot'], 
+                reverse=True
+            )[:10]
+            
+            return {
+                "ticker": ticker.upper(),
+                "floor_price": int(floor_price),
+                "confidence": confidence,
+                "institutional_buy_value": round(institutional_value, 2),
+                "institutional_buy_lot": int(institutional_lot),
+                "foreign_buy_value": round(foreign_value, 2),
+                "foreign_buy_lot": int(foreign_lot),
+                "institutional_brokers": inst_broker_list,
+                "foreign_brokers": foreign_broker_list,
+                "days_analyzed": unique_dates,
+                "latest_date": df['trade_date'].max() if not df.empty else None
+            }
+        except Exception as e:
+            print(f"[!] Error analyzing floor price: {e}")
+            return {
+                "ticker": ticker.upper(),
+                "floor_price": 0,
+                "confidence": "ERROR",
+                "institutional_buy_value": 0,
+                "institutional_buy_lot": 0,
+                "institutional_brokers": [],
+                "foreign_brokers": [],
+                "days_analyzed": 0,
+                "latest_date": None,
+                "error": str(e)
+            }
         finally:
             conn.close()
     

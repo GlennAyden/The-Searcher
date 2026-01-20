@@ -98,6 +98,9 @@ class DatabaseManager:
     def get_top_holders_by_net_lot(self, ticker, limit=3):
         return self.neobdm_repo.get_top_holders_by_net_lot(ticker, limit)
     
+    def get_floor_price_analysis(self, ticker, days=30):
+        return self.neobdm_repo.get_floor_price_analysis(ticker, days)
+    
     # Running Trade operations - delegate to RunningTradeRepository
     def save_rt_snapshot(self, data):
         return self.rt_repo.save_rt_snapshot(data)
