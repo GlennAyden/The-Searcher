@@ -6,6 +6,7 @@ All endpoints are now organized into domain-specific routers.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 import logging
 import sys
 import asyncio
@@ -42,10 +43,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# GZip compression for large JSON responses (70-80% size reduction)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 
 @app.on_event("startup")
 async def startup_event():
-    """Run synchronization on server startup."""
+    """Run synchronization and cleanup on server startup."""
     try:
         # Verify Event Loop Policy
         if sys.platform == "win32":
@@ -59,6 +63,17 @@ async def startup_event():
         logger.info("Starting Database-Filesystem sync...")
         result = sync_disclosures_with_filesystem()
         logger.info(f"Sync Result: {result['message']}")
+        
+        # Run Done Detail cleanup (7-day grace period for raw data)
+        try:
+            from db import DoneDetailRepository
+            done_detail_repo = DoneDetailRepository()
+            cleaned = done_detail_repo.delete_old_raw_data(days=7)
+            if cleaned > 0:
+                logger.info(f"Done Detail Cleanup: Deleted {cleaned} raw records older than 7 days")
+        except Exception as cleanup_err:
+            logger.warning(f"Done Detail cleanup skipped: {cleanup_err}")
+            
     except Exception as e:
         logging.error(f"Startup sync failed: {e}")
 

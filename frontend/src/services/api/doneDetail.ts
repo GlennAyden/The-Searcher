@@ -140,6 +140,7 @@ export interface SpeedAnalysis {
     ticker: string;
     date_range: { start: string; end: string };
     speed_by_broker: SpeedBrokerStats[];
+    broker_timelines: Record<string, TimelinePoint[]>;
     burst_events: BurstEvent[];
     timeline: TimelinePoint[];
     summary: {
@@ -218,6 +219,10 @@ export interface CombinedAnalysis {
         median: number;
         mean: number;
     };
+    // DEPRECATED: These fields have been removed from the API to prevent
+    // socket hang up errors from massive payloads. Use separate endpoints instead:
+    // - doneDetailApi.getImposterAnalysis() 
+    // - doneDetailApi.getSpeedAnalysis()
     imposter_analysis?: ImposterAnalysis;
     speed_analysis?: SpeedAnalysis;
     error?: string;
@@ -379,5 +384,76 @@ export const doneDetailApi = {
             `${API_BASE_URL}/api/done-detail/broker/${ticker}/${brokerCode}?start_date=${startDate}&end_date=${endDate}`
         );
         return await response.json();
+    },
+
+    /**
+     * Get Range Analysis
+     * Analyzes date range for 50% Rule (Retail Capitulation) and Imposter Recurrence
+     */
+    getRangeAnalysis: async (ticker: string, startDate: string, endDate: string): Promise<RangeAnalysis> => {
+        const response = await fetch(
+            `${API_BASE_URL}/api/done-detail/range-analysis/${ticker}?start_date=${startDate}&end_date=${endDate}`
+        );
+        return await response.json();
     }
 };
+
+// ===== Range Analysis Interfaces =====
+
+export interface RetailCapitulationBroker {
+    broker: string;
+    name: string;
+    peak_position: number;
+    current_position: number;
+    distribution_pct: number;
+    is_safe: boolean;
+    history: Array<{ date: string; cumulative: number }>;
+}
+
+export interface RetailCapitulation {
+    brokers: RetailCapitulationBroker[];
+    overall_pct: number;
+    safe_count: number;
+    holding_count: number;
+}
+
+export interface ImposterRecurrenceBroker {
+    broker: string;
+    name: string;
+    days_active: number;
+    total_days: number;
+    recurrence_pct: number;
+    total_value: number;
+    total_count: number;
+    avg_lot: number;
+    daily_activity: Array<{ date: string; value: number; count: number }>;
+}
+
+export interface BattleTimelineDay {
+    date: string;
+    total_imposter_value: number;
+    trade_count: number;
+    broker_breakdown: Record<string, number>;
+}
+
+export interface RangeSummary {
+    total_imposter_trades: number;
+    top_ghost_broker: string | null;
+    top_ghost_name: string | null;
+    peak_day: string | null;
+    peak_value: number;
+    avg_lot: number;
+    avg_daily_imposter_pct: number;
+    total_days: number;
+    retail_capitulation_pct: number;
+}
+
+export interface RangeAnalysis {
+    ticker: string;
+    date_range: { start: string; end: string };
+    retail_capitulation: RetailCapitulation;
+    imposter_recurrence: { brokers: ImposterRecurrenceBroker[] };
+    battle_timeline: BattleTimelineDay[];
+    summary: RangeSummary;
+    error?: string;
+}

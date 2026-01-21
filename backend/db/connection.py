@@ -310,10 +310,47 @@ class DatabaseConnection:
                 buyer_code TEXT,
                 seller_code TEXT,
                 seller_type TEXT,
-                created_at DATETIME DEFAULT (datetime('now'))
+                created_at DATETIME DEFAULT (datetime('now')),
+                processed_at DATETIME
             );
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_done_detail_lookup ON done_detail_records(ticker, trade_date);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_done_detail_time ON done_detail_records(ticker, trade_date, trade_time);")
         
+        # Migration: Add processed_at column if not exists (MUST be before index creation)
+        try:
+            conn.execute("ALTER TABLE done_detail_records ADD COLUMN processed_at DATETIME")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        # Create index on processed_at (after migration ensures column exists)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_done_detail_cleanup ON done_detail_records(processed_at);")
+        
+        # Done Detail Synthesis (Pre-computed analysis results)
+        # Stores synthesized analysis to avoid reprocessing raw data every request
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS done_detail_synthesis (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                trade_date TEXT NOT NULL,
+                
+                -- Versioning for algorithm updates
+                analysis_version TEXT DEFAULT '1.0.0',
+                calculated_at DATETIME DEFAULT (datetime('now')),
+                
+                -- Raw data metadata (for audit trail)
+                raw_record_count INTEGER,
+                raw_data_hash TEXT,
+                
+                -- Pre-computed analysis results (JSON blobs)
+                imposter_data TEXT,      -- Imposter trades, by_broker, thresholds, summary
+                speed_data TEXT,         -- Speed by broker, timeline, bursts, summary
+                combined_data TEXT,      -- Signal, flow, power brokers, key metrics
+                
+                UNIQUE(ticker, trade_date)
+            );
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_synthesis_lookup ON done_detail_synthesis(ticker, trade_date);")
+        
         conn.commit()
+

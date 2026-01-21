@@ -11,9 +11,21 @@ import {
 } from "lucide-react";
 import {
     doneDetailApi, SavedHistory, DateRangeInfo,
-    ImposterAnalysis, TradeRecord, SpeedAnalysis, CombinedAnalysis
+    ImposterAnalysis, TradeRecord, SpeedAnalysis, CombinedAnalysis, RangeAnalysis
 } from '@/services/api/doneDetail';
 import { BrokerProfileModal } from './BrokerProfileModal';
+import { ImposterTreeMap } from './ImposterTreeMap';
+import { SignalGauge } from './SignalGauge';
+import { TugOfWarBar } from './TugOfWarBar';
+import { MetricSparkline } from './MetricSparkline';
+import { BrokerDivergingBars } from './BrokerDivergingBars';
+import { SpeedDynamicsChart } from './SpeedDynamicsChart';
+import { SpeedTreemap } from './SpeedTreemap';
+import { RetailCapitulationMonitor } from './RetailCapitulationMonitor';
+import { ImposterRecurrenceHeatmap } from './ImposterRecurrenceHeatmap';
+import { GhostBrokerRanking } from './GhostBrokerRanking';
+import { BattleTimelineChart } from './BattleTimelineChart';
+import { RangeSummaryCards } from './RangeSummaryCards';
 
 interface DoneDetailSectionProps {
     ticker: string;
@@ -21,7 +33,8 @@ interface DoneDetailSectionProps {
 }
 
 // Format value in Rupiah
-const formatRupiah = (value: number): string => {
+const formatRupiah = (value: number | undefined | null): string => {
+    if (value === undefined || value === null) return 'Rp 0';
     if (value >= 1e12) return `Rp ${(value / 1e12).toFixed(2)}T`;
     if (value >= 1e9) return `Rp ${(value / 1e9).toFixed(2)}B`;
     if (value >= 1e6) return `Rp ${(value / 1e6).toFixed(1)}M`;
@@ -29,7 +42,8 @@ const formatRupiah = (value: number): string => {
     return `Rp ${value.toFixed(0)}`;
 };
 
-const formatLot = (value: number): string => {
+const formatLot = (value: number | undefined | null): string => {
+    if (value === undefined || value === null) return '0';
     if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
     if (value >= 1e3) return `${(value / 1e3).toFixed(1)}K`;
     return `${value.toLocaleString()}`;
@@ -115,6 +129,7 @@ export function DoneDetailSection({ ticker, onTickerChange }: DoneDetailSectionP
     const [analysisData, setAnalysisData] = useState<ImposterAnalysis | null>(null);
     const [speedData, setSpeedData] = useState<SpeedAnalysis | null>(null);
     const [combinedData, setCombinedData] = useState<CombinedAnalysis | null>(null);
+    const [rangeData, setRangeData] = useState<RangeAnalysis | null>(null);
 
     // Filter and sort state
     const [showFilters, setShowFilters] = useState(false);
@@ -122,8 +137,10 @@ export function DoneDetailSection({ ticker, onTickerChange }: DoneDetailSectionP
     const [sortConfig, setSortConfig] = useState<SortConfig>(null);
 
     // Active tab
-    const [activeTab, setActiveTab] = useState<'overview' | 'imposter' | 'speed'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'imposter' | 'speed' | 'range'>('overview');
     const [selectedBroker, setSelectedBroker] = useState<string | null>(null);
+    const [selectedBrokers, setSelectedBrokers] = useState<string[]>([]); // For Imposter/Top stats
+    const [selectedSpeedBrokers, setSelectedSpeedBrokers] = useState<string[]>([]); // For Speed Heartbeat
 
     // Load available tickers on mount
     useEffect(() => { loadTickers(); }, []);
@@ -174,6 +191,18 @@ export function DoneDetailSection({ ticker, onTickerChange }: DoneDetailSectionP
             // Optimized: Fetch all data in one request to prevent server overload
             const combined = await doneDetailApi.getCombinedAnalysis(selectedTicker, startDate, endDate);
 
+            // Check if response contains an error (no synthesis available)
+            if ((combined as any).error === 'no_synthesis') {
+                console.warn('No synthesis data available:', (combined as any).message);
+                // Set empty/default data instead of crashing
+                setCombinedData(null);
+                setAnalysisData(null);
+                setSpeedData(null);
+                setRangeData(null);
+                setLoading(false);
+                return;
+            }
+
             setCombinedData(combined);
 
             if (combined.imposter_analysis) {
@@ -181,7 +210,10 @@ export function DoneDetailSection({ ticker, onTickerChange }: DoneDetailSectionP
             } else {
                 // Fallback if backend doesn't return it (shouldn't happen with new backend)
                 const imposter = await doneDetailApi.getImposterAnalysis(selectedTicker, startDate, endDate);
-                setAnalysisData(imposter);
+                // Also check for error in imposter response
+                if (!(imposter as any).error) {
+                    setAnalysisData(imposter);
+                }
             }
 
             if (combined.speed_analysis) {
@@ -189,7 +221,18 @@ export function DoneDetailSection({ ticker, onTickerChange }: DoneDetailSectionP
             } else {
                 // Fallback
                 const speed = await doneDetailApi.getSpeedAnalysis(selectedTicker, startDate, endDate);
-                setSpeedData(speed);
+                // Also check for error in speed response
+                if (!(speed as any).error) {
+                    setSpeedData(speed);
+                }
+            }
+
+            // Fetch Range Analysis when in range mode (or always for multi-day insights)
+            if (dateMode === 'range' && startDate !== endDate) {
+                const range = await doneDetailApi.getRangeAnalysis(selectedTicker, startDate, endDate);
+                setRangeData(range);
+            } else {
+                setRangeData(null);
             }
         } catch (error) {
             console.error('Error loading data:', error);
@@ -261,6 +304,127 @@ export function DoneDetailSection({ ticker, onTickerChange }: DoneDetailSectionP
         }
     }, [message]);
 
+    // Data for TreeMap (Calculate Net Value from trades)
+    const treeMapData = useMemo(() => {
+        if (!analysisData) return [];
+
+        // 1. Calculate Net Value for each broker from individual imposter trades
+        const brokerNetCalcs = new Map<string, number>();
+
+        analysisData.imposter_trades.forEach(t => {
+            const current = brokerNetCalcs.get(t.broker_code) || 0;
+            if (t.direction === 'BUY') {
+                brokerNetCalcs.set(t.broker_code, current + t.value);
+            } else {
+                brokerNetCalcs.set(t.broker_code, current - t.value);
+            }
+        });
+
+        // 2. Merge with broker stats
+        return analysisData.by_broker.map(b => ({
+            broker: b.broker,
+            total_value: b.total_value,
+            net_value: brokerNetCalcs.get(b.broker) || 0,
+            strong_count: b.strong_count,
+            possible_count: b.possible_count
+        }));
+    }, [analysisData]);
+
+    const divergingBarData = useMemo(() => {
+        if (!analysisData) return [];
+
+        const brokerStats = new Map<string, { buy: number, sell: number }>();
+
+        analysisData.imposter_trades.forEach(t => {
+            const current = brokerStats.get(t.broker_code) || { buy: 0, sell: 0 };
+            if (t.direction === 'BUY') {
+                current.buy += t.value;
+            } else {
+                current.sell += t.value;
+            }
+            brokerStats.set(t.broker_code, current);
+        });
+
+        return analysisData.by_broker.map(b => {
+            const stats = brokerStats.get(b.broker) || { buy: 0, sell: 0 };
+            return {
+                broker: b.broker,
+                name: b.name,
+                total_value: b.total_value,
+                buy_value: stats.buy,
+                sell_value: stats.sell,
+                net_value: stats.buy - stats.sell
+            };
+        });
+    }, [analysisData]);
+
+    // Data for Imposter Sparkline
+    const imposterSparklineData = useMemo(() => {
+        if (!analysisData?.imposter_trades) return [];
+
+        // Group by HH:MM
+        const grouped = new Map<string, number>();
+        analysisData.imposter_trades.forEach(t => {
+            // Simplify time to HH:MM to reduce points if needed, or keep HH:MM:SS
+            // Assuming simplified for sparkline smoothness
+            const timeKey = t.trade_time.substring(0, 5); // 09:00
+            grouped.set(timeKey, (grouped.get(timeKey) || 0) + 1);
+        });
+
+        // Convert key-value to array and sort
+        const sorted = Array.from(grouped.entries())
+            .map(([time, count]) => ({ time, count }))
+            .sort((a, b) => a.time.localeCompare(b.time));
+
+        return sorted;
+        return sorted;
+    }, [analysisData]);
+
+    // Data for Speed Treemap Heatmap (Size=Freq, Color=TPS)
+    const speedTreemapData = useMemo(() => {
+        if (!speedData?.speed_by_broker) return [];
+
+        return speedData.speed_by_broker
+            .filter(b => b.total_trades > 0)
+            .map(b => ({
+                name: b.broker,
+                broker_name: b.name,
+                size: b.total_trades, // Area = Frequency Dominance
+                tps: b.trades_per_second, // Color = Heat/Intensity
+                value: b.total_value
+            }))
+            .sort((a, b) => b.size - a.size); // Sort by size for better layout
+    }, [speedData]);
+
+    // Derived Timeline for Speed Dynamics (Heartbeat) - Filterable
+    const displayedSpeedTimeline = useMemo(() => {
+        if (!speedData?.timeline) return [];
+
+        // If no filter selected, show total market heartbeat
+        if (selectedSpeedBrokers.length === 0) {
+            return speedData.timeline;
+        }
+
+        // If filtered, aggregate selected brokers' timelines
+        const combinedTimelineMap = new Map<string, number>(); // time -> trades
+
+        selectedSpeedBrokers.forEach(broker => {
+            const brokerTimeline = speedData.broker_timelines?.[broker];
+            if (brokerTimeline) {
+                brokerTimeline.forEach((point: any) => {
+                    const current = combinedTimelineMap.get(point.time) || 0;
+                    combinedTimelineMap.set(point.time, current + point.trades);
+                });
+            }
+        });
+
+        // Convert map back to array and sort by time
+        return Array.from(combinedTimelineMap.entries())
+            .map(([time, trades]) => ({ time, trades }))
+            .sort((a, b) => a.time.localeCompare(b.time));
+
+    }, [speedData, selectedSpeedBrokers]);
+
     // Filtered and sorted trades
     const displayedTrades = useMemo(() => {
         if (!analysisData?.all_trades) return [];
@@ -323,6 +487,9 @@ export function DoneDetailSection({ ticker, onTickerChange }: DoneDetailSectionP
     };
 
     const hasActiveFilters = Object.values(filters).some(f => f) || sortConfig !== null;
+
+    // Detect actual range mode (range selection with different dates)
+    const isRangeMode = dateMode === 'range' && startDate !== endDate && rangeData !== null;
 
     return (
         <div className="space-y-3">
@@ -424,210 +591,219 @@ export function DoneDetailSection({ ticker, onTickerChange }: DoneDetailSectionP
                 <div className="flex items-center justify-center h-80"><Loader2 className="w-6 h-6 animate-spin text-teal-400" /></div>
             ) : analysisData ? (
                 <div className="space-y-3">
-                    {/* Summary Cards */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <Card className="bg-slate-900/50 border-slate-700">
-                            <CardContent className="py-3 px-4 text-center">
-                                <div className="text-2xl font-black text-white">{analysisData.total_transactions.toLocaleString()}</div>
-                                <div className="text-xs text-slate-400 flex items-center justify-center gap-1">
-                                    <Activity className="w-3 h-3" />Total Transaksi
-                                </div>
-                            </CardContent>
-                        </Card>
-                        <Card className="bg-slate-900/50 border-slate-700">
-                            <CardContent className="py-3 px-4 text-center">
-                                <div className="text-2xl font-black text-teal-400">{formatLot(analysisData.summary.total_lot)}</div>
-                                <div className="text-xs text-slate-400 flex items-center justify-center gap-1">
-                                    <ArrowRightLeft className="w-3 h-3" />Total Lot
-                                </div>
-                            </CardContent>
-                        </Card>
-                        <Card className={`${analysisData.imposter_count > 0 ? 'bg-red-500/10 border-red-500/30' : 'bg-slate-900/50 border-slate-700'}`}>
-                            <CardContent className="py-3 px-4 text-center">
-                                <div className="flex items-center justify-center gap-2">
-                                    <span className="text-lg font-black text-red-500">{analysisData.summary.strong_count || 0}</span>
-                                    <span className="text-slate-500">/</span>
-                                    <span className="text-lg font-black text-orange-400">{analysisData.summary.possible_count || 0}</span>
-                                </div>
-                                <div className="text-xs text-slate-400 flex items-center justify-center gap-1">
-                                    <AlertTriangle className="w-3 h-3" />Strong/Possible
-                                </div>
-                            </CardContent>
-                        </Card>
-                        <Card className={`${analysisData.summary.imposter_percentage > 5 ? 'bg-red-500/10 border-red-500/30' : 'bg-slate-900/50 border-slate-700'}`}>
-                            <CardContent className="py-3 px-4 text-center">
-                                <div className="text-xs text-slate-500 mb-1">
-                                    P95: {analysisData.thresholds?.p95 || 0} | P99: {analysisData.thresholds?.p99 || 0} lot
-                                </div>
-                                <div className="text-xl font-black text-orange-400">{analysisData.summary.imposter_percentage.toFixed(1)}%</div>
-                                <div className="text-xs text-slate-400">Imposter Value %</div>
-                            </CardContent>
-                        </Card>
-                    </div>
-
-                    {/* Imposter Summary by Broker */}
-                    {analysisData.by_broker.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mb-2">
-                            <span className="text-xs text-slate-500">Imposter Brokers:</span>
-                            {analysisData.by_broker.map((b) => (
-                                <div key={b.broker} className="px-2 py-1 bg-red-500/10 border border-red-500/30 rounded text-xs">
-                                    <span className="font-bold text-red-400">{b.broker}</span>
-                                    <span className="text-slate-400 mx-1">•</span>
-                                    <span className="text-red-500">{b.strong_count || 0}S</span>
-                                    <span className="text-slate-500">/</span>
-                                    <span className="text-orange-400">{b.possible_count || 0}P</span>
-                                    <span className="text-slate-400 mx-1">•</span>
-                                    <span className="text-teal-400">{formatRupiah(b.total_value)}</span>
-                                </div>
-                            ))}
+                    {/* Summary Cards - Single Date Only */}
+                    {!isRangeMode && (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <Card className="bg-slate-900/50 border-slate-700">
+                                <CardContent className="py-3 px-4 text-center">
+                                    <div className="text-2xl font-black text-white">{analysisData.total_transactions.toLocaleString()}</div>
+                                    <div className="text-xs text-slate-400 flex items-center justify-center gap-1">
+                                        <Activity className="w-3 h-3" />Total Transaksi
+                                    </div>
+                                </CardContent>
+                            </Card>
+                            <Card className="bg-slate-900/50 border-slate-700">
+                                <CardContent className="py-3 px-4 text-center">
+                                    <div className="text-2xl font-black text-teal-400">{formatLot(analysisData.summary.total_lot)}</div>
+                                    <div className="text-xs text-slate-400 flex items-center justify-center gap-1">
+                                        <ArrowRightLeft className="w-3 h-3" />Total Lot
+                                    </div>
+                                </CardContent>
+                            </Card>
+                            <Card className={`${analysisData.imposter_count > 0 ? 'bg-red-500/10 border-red-500/30' : 'bg-slate-900/50 border-slate-700'}`}>
+                                <CardContent className="py-3 px-4 text-center">
+                                    <div className="flex items-center justify-center gap-2">
+                                        <span className="text-lg font-black text-red-500">{analysisData.summary.strong_count || 0}</span>
+                                        <span className="text-slate-500">/</span>
+                                        <span className="text-lg font-black text-orange-400">{analysisData.summary.possible_count || 0}</span>
+                                    </div>
+                                    <div className="text-xs text-slate-400 flex items-center justify-center gap-1">
+                                        <AlertTriangle className="w-3 h-3" />Strong/Possible
+                                    </div>
+                                </CardContent>
+                            </Card>
+                            <Card className={`${analysisData.summary.imposter_percentage > 5 ? 'bg-red-500/10 border-red-500/30' : 'bg-slate-900/50 border-slate-700'}`}>
+                                <CardContent className="py-3 px-4 text-center">
+                                    <div className="text-xs text-slate-500 mb-1">
+                                        P95: {analysisData.thresholds?.p95 || 0} | P99: {analysisData.thresholds?.p99 || 0} lot
+                                    </div>
+                                    <div className="text-xl font-black text-orange-400">{analysisData.summary.imposter_percentage.toFixed(1)}%</div>
+                                    <div className="text-xs text-slate-400">Imposter Value %</div>
+                                </CardContent>
+                            </Card>
                         </div>
                     )}
 
-                    {/* Tabs */}
-                    <div className="flex items-center gap-1 border-b border-slate-700 pb-1">
-                        {[
-                            { id: 'overview', label: '📊 Overview', active: true },
-                            { id: 'imposter', label: '🎭 Imposter', active: true },
-                            { id: 'speed', label: '⚡ Speed', active: true },
-                        ].map((tab) => (
-                            <button key={tab.id}
-                                className={`px-3 py-1.5 text-xs rounded-t ${activeTab === tab.id
-                                    ? 'bg-slate-800 text-teal-400 border border-b-0 border-slate-600'
-                                    : 'text-slate-500 hover:text-slate-300'} ${!tab.active ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                onClick={() => {
-                                    if (tab.active) {
-                                        setActiveTab(tab.id as any);
-                                    }
-                                }}
-                                disabled={!tab.active}
-                            >{tab.label}</button>
-                        ))}
-
-                        {/* Filter Toggle */}
-                        <div className="ml-auto flex items-center gap-2">
-                            {hasActiveFilters && (
-                                <Button variant="ghost" size="sm" onClick={clearFilters} className="h-6 text-xs text-slate-400 hover:text-white">
-                                    <X className="w-3 h-3 mr-1" />Clear
-                                </Button>
-                            )}
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setShowFilters(!showFilters)}
-                                className={`h-6 text-xs ${showFilters ? 'border-teal-500 text-teal-400' : 'border-slate-600 text-slate-400'}`}
-                            >
-                                <Filter className="w-3 h-3 mr-1" />Filter
-                            </Button>
+                    {/* Imposter Summary by Broker - Single Date Only */}
+                    {!isRangeMode && analysisData.by_broker.length > 0 && (
+                        <div className="mb-4">
+                            <div className="text-xs text-slate-500 mb-2">Imposter Brokers Distribution:</div>
+                            <ImposterTreeMap data={treeMapData} />
                         </div>
-                    </div>
+                    )}
 
-                    {/* Overview Dashboard */}
-                    {activeTab === 'overview' && combinedData && (
+                    {/* Tabs - Only show for single-date mode */}
+                    {!isRangeMode && (
+                        <div className="flex items-center gap-1 border-b border-slate-700 pb-1">
+                            {[
+                                { id: 'overview', label: '📊 Overview', active: true },
+                                { id: 'imposter', label: '🎭 Imposter', active: true },
+                                { id: 'speed', label: '⚡ Speed', active: true },
+                            ].map((tab) => (
+                                <button key={tab.id}
+                                    className={`px-3 py-1.5 text-xs rounded-t ${activeTab === tab.id
+                                        ? 'bg-slate-800 text-teal-400 border border-b-0 border-slate-600'
+                                        : 'text-slate-500 hover:text-slate-300'}`}
+                                    onClick={() => setActiveTab(tab.id as any)}
+                                >{tab.label}</button>
+                            ))}
+
+                            {/* Filter Toggle */}
+                            <div className="ml-auto flex items-center gap-2">
+                                {hasActiveFilters && (
+                                    <Button variant="ghost" size="sm" onClick={clearFilters} className="h-6 text-xs text-slate-400 hover:text-white">
+                                        <X className="w-3 h-3 mr-1" />Clear
+                                    </Button>
+                                )}
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setShowFilters(!showFilters)}
+                                    className={`h-6 text-xs ${showFilters ? 'border-teal-500 text-teal-400' : 'border-slate-600 text-slate-400'}`}
+                                >
+                                    <Filter className="w-3 h-3 mr-1" />Filter
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Range Mode Header */}
+                    {isRangeMode && (
+                        <div className="flex items-center justify-between border-b border-purple-500/30 pb-2 mb-4">
+                            <div className="flex items-center gap-3">
+                                <div className="text-lg font-bold text-purple-400">📈 Range Analysis</div>
+                                <span className="text-xs text-slate-500">
+                                    {rangeData?.summary?.total_days ?? 0} days: {startDate} → {endDate}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {hasActiveFilters && (
+                                    <Button variant="ghost" size="sm" onClick={clearFilters} className="h-6 text-xs text-slate-400 hover:text-white">
+                                        <X className="w-3 h-3 mr-1" />Clear
+                                    </Button>
+                                )}
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setShowFilters(!showFilters)}
+                                    className={`h-6 text-xs ${showFilters ? 'border-teal-500 text-teal-400' : 'border-slate-600 text-slate-400'}`}
+                                >
+                                    <Filter className="w-3 h-3 mr-1" />Filter
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Overview Dashboard - Single Date Only */}
+                    {!isRangeMode && activeTab === 'overview' && combinedData && (
                         <div className="space-y-4">
                             {/* Signal Strength Hero */}
-                            <Card className={`border-2 ${combinedData.signal.direction === 'BULLISH'
-                                ? 'bg-gradient-to-r from-green-900/30 to-green-800/10 border-green-500/50'
+                            <Card className={`border-2 overflow-hidden relative ${combinedData.signal.direction === 'BULLISH'
+                                ? 'bg-gradient-to-br from-slate-900 to-green-950/30 border-green-500/30'
                                 : combinedData.signal.direction === 'BEARISH'
-                                    ? 'bg-gradient-to-r from-red-900/30 to-red-800/10 border-red-500/50'
+                                    ? 'bg-gradient-to-br from-slate-900 to-red-950/30 border-red-500/30'
                                     : 'bg-slate-900/50 border-slate-600'
                                 }`}>
-                                <CardContent className="py-6 px-6">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-4">
-                                            <div className={`text-5xl ${combinedData.signal.direction === 'BULLISH' ? 'text-green-400'
-                                                : combinedData.signal.direction === 'BEARISH' ? 'text-red-400'
-                                                    : 'text-slate-400'
-                                                }`}>
-                                                {combinedData.signal.direction === 'BULLISH' ? '📈' : combinedData.signal.direction === 'BEARISH' ? '📉' : '➖'}
-                                            </div>
-                                            <div>
-                                                <div className={`text-3xl font-black ${combinedData.signal.direction === 'BULLISH' ? 'text-green-400'
-                                                    : combinedData.signal.direction === 'BEARISH' ? 'text-red-400'
-                                                        : 'text-slate-400'
-                                                    }`}>
-                                                    {combinedData.signal.description}
-                                                </div>
-                                                <div className="text-sm text-slate-400 mt-1">
-                                                    Based on Impostor Flow + Speed Analysis
-                                                </div>
-                                            </div>
+                                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-white/10 to-transparent opacity-50" />
+                                <CardContent className="py-2 px-4 flex items-center justify-between">
+                                    <div className="flex-1">
+                                        <div className="text-xs text-slate-400 uppercase tracking-widest mb-1">Market Signal</div>
+                                        <div className="text-3xl font-black text-white leading-tight">
+                                            {combinedData.signal.direction}
                                         </div>
-                                        <div className="text-right">
-                                            <div className="text-4xl font-black text-white">
-                                                {combinedData.signal.confidence}%
-                                            </div>
-                                            <div className="text-xs text-slate-400">Confidence</div>
+                                        <div className="text-sm text-slate-400">
+                                            {combinedData.signal.description}
                                         </div>
+                                    </div>
+                                    <div className="w-[180px]">
+                                        <SignalGauge
+                                            value={combinedData.signal.confidence}
+                                            direction={combinedData.signal.direction}
+                                            label={combinedData.signal.level}
+                                        />
                                     </div>
                                 </CardContent>
                             </Card>
 
                             {/* Key Metrics Row */}
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                <Card className="bg-slate-900/50 border-slate-700">
-                                    <CardContent className="py-3 px-4 text-center">
-                                        <div className="flex items-center justify-center gap-2">
-                                            <span className="text-lg font-black text-red-500">{combinedData.key_metrics.strong_impostor_count}</span>
-                                            <span className="text-slate-500">/</span>
-                                            <span className="text-lg font-black text-orange-400">{combinedData.key_metrics.possible_impostor_count}</span>
+                                {/* Imposter Card */}
+                                <Card className="bg-slate-900/50 border-slate-700 shadow-[0_0_20px_rgba(239,68,68,0.1)] hover:shadow-[0_0_20px_rgba(239,68,68,0.2)] transition-shadow overflow-hidden relative">
+                                    <CardContent className="py-3 px-4 text-center z-10 relative">
+                                        <div className="flex items-center justify-center gap-2 mb-1">
+                                            <span className="text-xl font-black text-red-500">{combinedData.key_metrics.strong_impostor_count}</span>
+                                            <span className="text-slate-600 text-lg">/</span>
+                                            <span className="text-xl font-black text-orange-400">{combinedData.key_metrics.possible_impostor_count}</span>
                                         </div>
-                                        <div className="text-xs text-slate-400">Strong / Possible Impostor</div>
+                                        <div className="text-xs text-slate-400 font-medium">Strong / Possible Impostor</div>
                                     </CardContent>
+                                    <div className="absolute bottom-0 left-0 right-0 h-10 opacity-30">
+                                        <MetricSparkline data={imposterSparklineData} dataKey="count" color="#ef4444" height={40} />
+                                    </div>
                                 </Card>
-                                <Card className="bg-slate-900/50 border-slate-700">
-                                    <CardContent className="py-3 px-4 text-center">
-                                        <div className="text-2xl font-black text-teal-400">{combinedData.key_metrics.avg_tps}</div>
-                                        <div className="text-xs text-slate-400">Avg Trades/Sec</div>
+
+                                {/* TPS Card */}
+                                <Card className="bg-slate-900/50 border-slate-700 shadow-[0_0_20px_rgba(20,184,166,0.1)] hover:shadow-[0_0_20px_rgba(20,184,166,0.2)] transition-shadow overflow-hidden relative">
+                                    <CardContent className="py-3 px-4 text-center z-10 relative">
+                                        <div className="text-2xl font-black text-teal-400 mb-1">{combinedData.key_metrics.avg_tps}</div>
+                                        <div className="text-xs text-slate-400 font-medium">Avg Trades/Sec</div>
                                     </CardContent>
+                                    <div className="absolute bottom-0 left-0 right-0 h-10 opacity-30">
+                                        <MetricSparkline data={combinedData.timeline} dataKey="trades" color="#14b8a6" height={40} />
+                                    </div>
                                 </Card>
-                                <Card className="bg-slate-900/50 border-slate-700">
-                                    <CardContent className="py-3 px-4 text-center">
-                                        <div className="text-2xl font-black text-yellow-400">{combinedData.key_metrics.burst_count}</div>
-                                        <div className="text-xs text-slate-400">Burst Events</div>
+
+                                {/* Burst Card */}
+                                <Card className="bg-slate-900/50 border-slate-700 shadow-[0_0_20px_rgba(234,179,8,0.1)] hover:shadow-[0_0_20px_rgba(234,179,8,0.2)] transition-shadow overflow-hidden relative">
+                                    <CardContent className="py-3 px-4 text-center z-10 relative">
+                                        <div className="text-2xl font-black text-yellow-400 mb-1">{combinedData.key_metrics.burst_count}</div>
+                                        <div className="text-xs text-slate-400 font-medium">Burst Events</div>
                                     </CardContent>
+                                    <div className="absolute bottom-0 left-0 right-0 h-10 opacity-30">
+                                        {/* Use same timeline but maybe different color or filtered only for bursts? Keeping simple for visual consistency */}
+                                        <MetricSparkline data={combinedData.timeline} dataKey="trades" color="#eab308" height={40} />
+                                    </div>
                                 </Card>
-                                <Card className="bg-slate-900/50 border-slate-700">
-                                    <CardContent className="py-3 px-4 text-center">
-                                        <div className="text-2xl font-black text-white">{combinedData.key_metrics.total_trades.toLocaleString()}</div>
-                                        <div className="text-xs text-slate-400">Total Trades</div>
+
+                                {/* Total Trades Card */}
+                                <Card className="bg-slate-900/50 border-slate-700 shadow-[0_0_20px_rgba(255,255,255,0.05)] hover:shadow-[0_0_20px_rgba(255,255,255,0.1)] transition-shadow overflow-hidden relative">
+                                    <CardContent className="py-3 px-4 text-center z-10 relative">
+                                        <div className="text-2xl font-black text-white mb-1">{combinedData.key_metrics.total_trades.toLocaleString()}</div>
+                                        <div className="text-xs text-slate-400 font-medium">Total Trades</div>
                                     </CardContent>
+                                    <div className="absolute bottom-0 left-0 right-0 h-10 opacity-20">
+                                        <MetricSparkline data={combinedData.timeline} dataKey="trades" color="#ffffff" height={40} />
+                                    </div>
                                 </Card>
                             </div>
 
                             {/* Impostor Flow */}
                             <Card className="bg-slate-900/50 border-slate-700">
-                                <CardHeader className="py-2 px-4">
-                                    <CardTitle className="text-sm text-teal-400">💰 Impostor Flow (Smart Money Direction)</CardTitle>
-                                </CardHeader>
-                                <CardContent className="py-4 px-4">
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex-1">
-                                            <div className="flex justify-between text-xs text-slate-400 mb-1">
-                                                <span>BUY {combinedData.impostor_flow.buy_pct.toFixed(1)}%</span>
-                                                <span>SELL {combinedData.impostor_flow.sell_pct.toFixed(1)}%</span>
-                                            </div>
-                                            <div className="h-6 bg-slate-800 rounded-full overflow-hidden flex">
-                                                <div
-                                                    className="bg-gradient-to-r from-green-600 to-green-400 h-full transition-all"
-                                                    style={{ width: `${combinedData.impostor_flow.buy_pct}%` }}
-                                                />
-                                                <div
-                                                    className="bg-gradient-to-r from-red-400 to-red-600 h-full transition-all"
-                                                    style={{ width: `${combinedData.impostor_flow.sell_pct}%` }}
-                                                />
-                                            </div>
-                                            <div className="flex justify-between text-xs mt-1">
-                                                <span className="text-green-400 font-bold">{formatRupiah(combinedData.impostor_flow.buy_value)} ({combinedData.impostor_flow.buy_count})</span>
-                                                <span className="text-red-400 font-bold">{formatRupiah(combinedData.impostor_flow.sell_value)} ({combinedData.impostor_flow.sell_count})</span>
-                                            </div>
-                                        </div>
-                                        <div className="text-center px-4 border-l border-slate-700">
-                                            <div className={`text-xl font-black ${combinedData.impostor_flow.net_value >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                                {combinedData.impostor_flow.net_value >= 0 ? '+' : ''}{formatRupiah(combinedData.impostor_flow.net_value)}
-                                            </div>
-                                            <div className="text-xs text-slate-400">Net Flow</div>
-                                        </div>
+                                <CardHeader className="py-2 px-4 border-b border-slate-800/50">
+                                    <div className="flex items-center justify-between">
+                                        <CardTitle className="text-sm text-white flex items-center gap-2">
+                                            💰 Smart Money Flow
+                                        </CardTitle>
                                     </div>
+                                </CardHeader>
+                                <CardContent className="py-4 px-6">
+                                    <TugOfWarBar
+                                        buyPct={combinedData.impostor_flow.buy_pct}
+                                        sellPct={combinedData.impostor_flow.sell_pct}
+                                        netValue={combinedData.impostor_flow.net_value}
+                                        buyValue={combinedData.impostor_flow.buy_value}
+                                        sellValue={combinedData.impostor_flow.sell_value}
+                                    />
                                 </CardContent>
                             </Card>
 
@@ -705,8 +881,8 @@ export function DoneDetailSection({ ticker, onTickerChange }: DoneDetailSectionP
                         </div>
                     )}
 
-                    {/* Imposter Trades Table */}
-                    {activeTab === 'imposter' && (
+                    {/* Imposter Trades Table - Single Date Only */}
+                    {!isRangeMode && activeTab === 'imposter' && (
                         <div className="space-y-3">
                             {/* BUY/SELL/Net Flow Summary */}
                             {analysisData && analysisData.imposter_trades.length > 0 && (
@@ -849,92 +1025,18 @@ export function DoneDetailSection({ ticker, onTickerChange }: DoneDetailSectionP
                                 </div>
                             )}
 
-                            {/* Broker Heatmap Cards */}
-                            {analysisData && analysisData.by_broker.length > 0 && (
+                            {/* Broker Heatmap Cards -> Replaced by Diverging Bars */}
+                            {divergingBarData.length > 0 && (
                                 <Card className="bg-slate-900/50 border-slate-700">
                                     <CardHeader className="py-2 px-4">
-                                        <CardTitle className="text-sm text-purple-400">🏆 Top Impostor Brokers (Ranked by Value)</CardTitle>
+                                        <CardTitle className="text-sm text-purple-400">🏆 Top Impostor Brokers (Net Flow)</CardTitle>
                                     </CardHeader>
                                     <CardContent className="py-2 px-4">
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                            {analysisData.by_broker.slice(0, 9).map((broker, index) => {
-                                                const buyTrades = analysisData.imposter_trades.filter(
-                                                    t => t.broker_code === broker.broker && t.direction === 'BUY'
-                                                );
-                                                const sellTrades = analysisData.imposter_trades.filter(
-                                                    t => t.broker_code === broker.broker && t.direction === 'SELL'
-                                                );
-                                                const buyValue = buyTrades.reduce((sum, t) => sum + t.value, 0);
-                                                const sellValue = sellTrades.reduce((sum, t) => sum + t.value, 0);
-                                                const isBuyDominant = buyValue > sellValue;
-
-                                                return (
-                                                    <div
-                                                        key={broker.broker}
-                                                        onClick={() => setSelectedBroker(broker.broker)}
-                                                        className={`p-3 rounded-lg border ${isBuyDominant
-                                                            ? 'bg-green-900/20 border-green-500/30'
-                                                            : 'bg-red-900/20 border-red-500/30'
-                                                            } hover:scale-105 transition-transform cursor-pointer`}
-                                                    >
-                                                        <div className="flex items-center justify-between mb-2">
-                                                            <div className="flex items-center gap-2">
-                                                                {index < 3 && (
-                                                                    <span className="text-lg">
-                                                                        {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
-                                                                    </span>
-                                                                )}
-                                                                <span className="font-bold text-white">{broker.broker}</span>
-                                                            </div>
-                                                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${isBuyDominant
-                                                                ? 'bg-green-500/20 text-green-400'
-                                                                : 'bg-red-500/20 text-red-400'
-                                                                }`}>
-                                                                {isBuyDominant ? '↑ BUY' : '↓ SELL'}
-                                                            </span>
-                                                        </div>
-                                                        <div className="text-xs text-slate-400 mb-2">{broker.name}</div>
-                                                        <div className="text-sm font-bold text-teal-400 mb-2">
-                                                            {formatRupiah(broker.total_value)}
-                                                        </div>
-
-                                                        {/* BUY/SELL Balance Bar */}
-                                                        <div className="mb-2">
-                                                            <div className="flex justify-between text-xs text-slate-500 mb-1">
-                                                                <span>BUY</span>
-                                                                <span>SELL</span>
-                                                            </div>
-                                                            <div className="h-2 bg-slate-800 rounded-full overflow-hidden flex">
-                                                                <div
-                                                                    className="bg-green-500 h-full transition-all"
-                                                                    style={{
-                                                                        width: `${broker.total_value > 0 ? (buyValue / broker.total_value * 100) : 0}%`
-                                                                    }}
-                                                                />
-                                                                <div
-                                                                    className="bg-red-500 h-full transition-all"
-                                                                    style={{
-                                                                        width: `${broker.total_value > 0 ? (sellValue / broker.total_value * 100) : 0}%`
-                                                                    }}
-                                                                />
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="grid grid-cols-2 gap-2 text-xs">
-                                                            <div>
-                                                                <span className="text-slate-500">Trades:</span>
-                                                                <span className="text-white ml-1">{broker.count}</span>
-                                                            </div>
-                                                            <div>
-                                                                <span className="text-red-500">{broker.strong_count}S</span>
-                                                                <span className="text-slate-500">/</span>
-                                                                <span className="text-orange-400">{broker.possible_count}P</span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
+                                        <BrokerDivergingBars
+                                            data={divergingBarData}
+                                            onBrokerClick={setSelectedBroker}
+                                            height={500}
+                                        />
                                     </CardContent>
                                 </Card>
                             )}
@@ -1085,8 +1187,8 @@ export function DoneDetailSection({ ticker, onTickerChange }: DoneDetailSectionP
 
 
 
-                    {/* Speed Tab Content */}
-                    {activeTab === 'speed' && speedData && (
+                    {/* Speed Tab Content - Single Date Only */}
+                    {!isRangeMode && activeTab === 'speed' && speedData && (
                         <Card className="bg-slate-900/80 border-slate-700">
                             <CardHeader className="py-2 px-4 border-b border-slate-700">
                                 <CardTitle className="text-sm flex items-center gap-2 text-yellow-400">
@@ -1118,143 +1220,89 @@ export function DoneDetailSection({ ticker, onTickerChange }: DoneDetailSectionP
                                     </div>
                                 </div>
 
-                                {/* Burst Events Visualization */}
-                                {speedData.burst_events.length > 0 && (
+                                {/* Speed Dynamics Chart (Heartbeat) */}
+                                {speedData.timeline.length > 0 && (
                                     <div className="mb-6">
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <div className="text-sm text-orange-400 font-bold">🔥 Burst Activity Timeline</div>
-                                            <div className="text-xs text-slate-500">(Moments with {'>'}10 trades/sec)</div>
-                                        </div>
-                                        <div className="relative pt-4 pb-2 px-2 overflow-x-auto">
-                                            {/* Timeline Line */}
-                                            <div className="absolute top-[28px] left-0 right-0 h-0.5 bg-gradient-to-r from-slate-800 via-orange-900/50 to-slate-800" />
-
-                                            <div className="flex gap-4 relative z-10 min-w-max pb-2">
-                                                {speedData.burst_events.slice(0, 15).map((burst, i) => {
-                                                    // Calculate intensity (1-3 scale based on trade count)
-                                                    const intensity = burst.trade_count > 30 ? 3 : burst.trade_count > 15 ? 2 : 1;
-                                                    const sizeClass = intensity === 3 ? "w-8 h-8" : intensity === 2 ? "w-6 h-6" : "w-4 h-4";
-                                                    const colorClass = intensity === 3 ? "bg-red-500" : intensity === 2 ? "bg-orange-500" : "bg-yellow-500";
-                                                    const glowClass = intensity === 3 ? "shadow-[0_0_15px_rgba(239,68,68,0.6)]" : "shadow-[0_0_10px_rgba(249,115,22,0.4)]";
-
-                                                    return (
-                                                        <div key={i} className="flex flex-col items-center group cursor-pointer relative top-[2px]">
-                                                            {/* Time Label - Top */}
-                                                            <div className="text-[10px] font-mono text-slate-500 mb-2 opacity-70 group-hover:opacity-100 transition-opacity">
-                                                                {burst.trade_time}
-                                                            </div>
-
-                                                            {/* Node */}
-                                                            <div className={`${sizeClass} ${colorClass} rounded-full border-2 border-slate-900 ${glowClass} flex items-center justify-center transition-transform group-hover:scale-125 z-10`}>
-                                                                {intensity >= 2 && <Zap className="w-3 h-3 text-white fill-white" />}
-                                                            </div>
-
-                                                            {/* Count Label - Bottom */}
-                                                            <div className="mt-2 bg-slate-800/90 px-2 py-0.5 rounded border border-slate-700 text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity absolute top-full">
-                                                                <span className="font-bold text-orange-400">{burst.trade_count} trades</span>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                                {speedData.burst_events.length > 15 && (
-                                                    <div className="flex items-center justify-center self-center ml-2">
-                                                        <span className="text-xs text-slate-500 font-mono">+{speedData.burst_events.length - 15} more</span>
-                                                    </div>
-                                                )}
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center gap-2">
+                                                <div className="text-sm text-orange-400 font-bold">⚡ Speed Dynamics (Market Heartbeat)</div>
+                                                <div className="text-xs text-slate-500">(Trades Per Second)</div>
                                             </div>
+                                            <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                                                <div className="flex items-center gap-1"><div className="w-2 h-2 bg-slate-700 rounded-sm"></div> Normal</div>
+                                                <div className="flex items-center gap-1"><div className="w-2 h-2 bg-yellow-500 rounded-sm"></div> High</div>
+                                                <div className="flex items-center gap-1"><div className="w-2 h-2 bg-red-500 rounded-sm"></div> Burst</div>
+                                            </div>
+                                        </div>
+
+                                        {/* Broker Filter Chips for Speed Chart */}
+                                        <div className="flex flex-wrap gap-2 mb-3">
+                                            <button
+                                                onClick={() => setSelectedSpeedBrokers([])}
+                                                className={`px-2 py-1 rounded text-xs font-bold transition-colors border ${selectedSpeedBrokers.length === 0
+                                                    ? 'bg-orange-500 text-white border-orange-500'
+                                                    : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-orange-500/50'
+                                                    }`}
+                                            >
+                                                ALL MARKET
+                                            </button>
+                                            {speedData.speed_by_broker.slice(0, 10).map(b => (
+                                                <button
+                                                    key={b.broker}
+                                                    onClick={() => {
+                                                        setSelectedSpeedBrokers(prev =>
+                                                            prev.includes(b.broker)
+                                                                ? prev.filter(x => x !== b.broker)
+                                                                : [...prev, b.broker]
+                                                        );
+                                                    }}
+                                                    className={`px-2 py-1 rounded text-xs font-bold transition-colors border flex items-center gap-1 ${selectedSpeedBrokers.includes(b.broker)
+                                                        ? 'bg-orange-500/20 text-orange-400 border-orange-500'
+                                                        : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-orange-500/50'
+                                                        }`}
+                                                >
+                                                    {b.broker}
+                                                    {selectedSpeedBrokers.includes(b.broker) && <span className="text-[10px]">✕</span>}
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-700/50 shadow-inner min-h-[250px] relative">
+                                            {selectedSpeedBrokers.length > 0 && !speedData.broker_timelines && (
+                                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 text-center p-4">
+                                                    <p className="text-orange-400 font-bold mb-2">⚠️ Detailed Data Missing</p>
+                                                    <p className="text-slate-400 text-sm">To filter by specific brokers, the backend must be updated to return "broker_timelines".</p>
+                                                    <p className="text-slate-500 text-xs mt-2">Try restarting the backend server.</p>
+                                                </div>
+                                            )}
+
+                                            {displayedSpeedTimeline.length === 0 && selectedSpeedBrokers.length > 0 && speedData.broker_timelines ? (
+                                                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
+                                                    <p className="text-slate-500 font-bold">No activity found for selected broker(s)</p>
+                                                </div>
+                                            ) : (
+                                                <SpeedDynamicsChart
+                                                    data={displayedSpeedTimeline}
+                                                    avgTps={selectedSpeedBrokers.length > 0 ? undefined : speedData.summary.avg_trades_per_second}
+                                                    height={250}
+                                                />
+                                            )}
                                         </div>
                                     </div>
                                 )}
 
-                                {/* Broker Speed Ranking */}
-                                <div className="text-sm text-purple-400 mb-3 font-bold">🏆 Top Speed Brokers (Ranked by Trade Count)</div>
-                                {speedData.speed_by_broker.length > 0 ? (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                        {speedData.speed_by_broker.slice(0, 9).map((broker, index) => {
-                                            const isBuyDominant = broker.buy_trades > broker.sell_trades;
-                                            const buyPct = broker.total_trades > 0 ? (broker.buy_trades / broker.total_trades * 100) : 0;
-                                            const sellPct = broker.total_trades > 0 ? (broker.sell_trades / broker.total_trades * 100) : 0;
-
-                                            return (
-                                                <div
-                                                    key={broker.broker}
-                                                    onClick={() => setSelectedBroker(broker.broker)}
-                                                    className={`p-3 rounded-lg border ${isBuyDominant
-                                                        ? 'bg-green-900/20 border-green-500/30'
-                                                        : 'bg-red-900/20 border-red-500/30'
-                                                        } hover:scale-105 transition-transform cursor-pointer`}
-                                                >
-                                                    <div className="flex items-center justify-between mb-2">
-                                                        <div className="flex items-center gap-2">
-                                                            {index < 3 && (
-                                                                <span className="text-lg">
-                                                                    {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
-                                                                </span>
-                                                            )}
-                                                            <span className="font-bold text-white">{broker.broker}</span>
-                                                        </div>
-                                                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${isBuyDominant
-                                                            ? 'bg-green-500/20 text-green-400'
-                                                            : 'bg-red-500/20 text-red-400'
-                                                            }`}>
-                                                            {isBuyDominant ? '↑ BUY' : '↓ SELL'}
-                                                        </span>
-                                                    </div>
-
-                                                    <div className="text-xs text-slate-400 mb-2">{broker.name}</div>
-
-                                                    {/* Total Trades & TPS */}
-                                                    <div className="grid grid-cols-2 gap-2 mb-2">
-                                                        <div>
-                                                            <div className="text-xl font-black text-yellow-400">
-                                                                {broker.total_trades.toLocaleString()}
-                                                            </div>
-                                                            <div className="text-xs text-slate-500">Total Trades</div>
-                                                        </div>
-                                                        <div>
-                                                            <div className="text-xl font-black text-teal-400">
-                                                                {broker.trades_per_second}
-                                                            </div>
-                                                            <div className="text-xs text-slate-500">TPS</div>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* BUY/SELL Balance Bar */}
-                                                    <div className="mb-2">
-                                                        <div className="flex justify-between text-xs text-slate-500 mb-1">
-                                                            <span>BUY {buyPct.toFixed(0)}%</span>
-                                                            <span>SELL {sellPct.toFixed(0)}%</span>
-                                                        </div>
-                                                        <div className="h-2 bg-slate-800 rounded-full overflow-hidden flex">
-                                                            <div
-                                                                className="bg-green-500 h-full transition-all"
-                                                                style={{ width: `${buyPct}%` }}
-                                                            />
-                                                            <div
-                                                                className="bg-red-500 h-full transition-all"
-                                                                style={{ width: `${sellPct}%` }}
-                                                            />
-                                                        </div>
-                                                        <div className="flex justify-between text-xs mt-1">
-                                                            <span className="text-green-400">{broker.buy_trades.toLocaleString()}</span>
-                                                            <span className="text-red-400">{broker.sell_trades.toLocaleString()}</span>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Additional Stats */}
-                                                    <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-700">
-                                                        <div>
-                                                            <span className="text-slate-500">Value:</span>
-                                                            <span className="text-teal-400 ml-1">{formatRupiah(broker.total_value)}</span>
-                                                        </div>
-                                                        <div>
-                                                            <span className="text-slate-500">Active:</span>
-                                                            <span className="text-blue-400 ml-1">{broker.seconds_active}s</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
+                                {/* Broker Speed Ranking -> Replaced by Treemap Heatmap */}
+                                <div className="text-sm text-purple-400 mb-3 font-bold">🏆 Top Speed Brokers Dominance (Treemap Heatmap)</div>
+                                {speedTreemapData.length > 0 ? (
+                                    <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-700/50">
+                                        <div className="text-xs text-slate-500 mb-2 italic">
+                                            Size: Trade Frequency (Noise) • Color: <span className="text-red-500 font-bold">Heat/Speed (TPS)</span>
+                                        </div>
+                                        <SpeedTreemap
+                                            data={speedTreemapData}
+                                            onBrokerClick={setSelectedBroker}
+                                            height={500}
+                                        />
                                     </div>
                                 ) : (
                                     <div className="text-center py-8 text-slate-400">
@@ -1264,6 +1312,142 @@ export function DoneDetailSection({ ticker, onTickerChange }: DoneDetailSectionP
                                 )}
                             </CardContent>
                         </Card>
+                    )}
+
+                    {/* Range Analysis - Range Mode Only (5 Sections) */}
+                    {isRangeMode && rangeData && (
+                        <div className="space-y-6">
+                            {/* Validate that we have all required data before rendering */}
+                            {!rangeData.summary || !rangeData.retail_capitulation || !rangeData.imposter_recurrence || !rangeData.battle_timeline ? (
+                                <div className="text-center py-8">
+                                    <div className="text-red-400 text-sm mb-2">⚠️ Incomplete Range Analysis Data</div>
+                                    <div className="text-slate-500 text-xs">
+                                        {rangeData.error || 'Some required data is missing. Please try refreshing or selecting a different date range.'}
+                                    </div>
+                                </div>
+                            ) : (
+                                <>
+                                    {/* Section 1: Summary Cards */}
+                                    <RangeSummaryCards summary={rangeData.summary} />
+
+                                    {/* Section 2: Retail Capitulation (50% Rule) */}
+                                    <div>
+                                        <div className="text-sm text-orange-400 mb-3 font-bold flex items-center gap-2">
+                                            📊 Section 1: Retail Capitulation Monitor
+                                            <span className="text-xs text-slate-500 font-normal">(50% Rule)</span>
+                                        </div>
+                                        <RetailCapitulationMonitor
+                                            brokers={rangeData.retail_capitulation.brokers}
+                                            overallPct={rangeData.retail_capitulation.overall_pct}
+                                            safeCount={rangeData.retail_capitulation.safe_count}
+                                            holdingCount={rangeData.retail_capitulation.holding_count}
+                                        />
+                                    </div>
+
+                                    {/* Section 3: Imposter Recurrence Analysis */}
+                                    <div>
+                                        <div className="text-sm text-purple-400 mb-3 font-bold flex items-center gap-2">
+                                            🔍 Section 2: Imposter Recurrence Analysis
+                                            <span className="text-xs text-slate-500 font-normal">(Ghost Broker Detection)</span>
+                                        </div>
+                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                            {/* Heatmap */}
+                                            <ImposterRecurrenceHeatmap
+                                                brokers={rangeData.imposter_recurrence.brokers}
+                                                allDates={rangeData.battle_timeline.map(d => d.date)}
+                                            />
+
+                                            {/* Ghost Broker Ranking */}
+                                            <GhostBrokerRanking
+                                                brokers={rangeData.imposter_recurrence.brokers}
+                                                onBrokerClick={setSelectedBroker}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Section 4: Battle Timeline */}
+                                    <div>
+                                        <div className="text-sm text-blue-400 mb-3 font-bold flex items-center gap-2">
+                                            ⚔️ Section 3: Battle Timeline
+                                            <span className="text-xs text-slate-500 font-normal">(Daily Smart Money Activity)</span>
+                                        </div>
+                                        <BattleTimelineChart
+                                            data={rangeData.battle_timeline}
+                                            height={300}
+                                        />
+                                    </div>
+
+                                    {/* Section 5: Detailed Imposter Trade List */}
+                                    {analysisData && analysisData.imposter_trades.length > 0 && (
+                                        <Card className="bg-slate-900/50 border-slate-700">
+                                            <CardHeader className="py-2 px-4 border-b border-slate-700">
+                                                <CardTitle className="text-sm text-red-400 flex items-center gap-2">
+                                                    📋 Section 4: Detailed Imposter Trades
+                                                    <span className="text-xs text-slate-500 font-normal">
+                                                        ({analysisData.imposter_trades.length} trades)
+                                                    </span>
+                                                </CardTitle>
+                                            </CardHeader>
+                                            <CardContent className="py-2 px-0">
+                                                <div className="max-h-[400px] overflow-y-auto">
+                                                    <table className="w-full text-xs">
+                                                        <thead className="sticky top-0 bg-slate-900 z-10">
+                                                            <tr className="border-b border-slate-700">
+                                                                <th className="text-left py-2 px-3 text-slate-400 font-medium">Date</th>
+                                                                <th className="text-left py-2 px-2 text-slate-400 font-medium">Time</th>
+                                                                <th className="text-left py-2 px-2 text-slate-400 font-medium">Broker</th>
+                                                                <th className="text-right py-2 px-2 text-slate-400 font-medium">Lot</th>
+                                                                <th className="text-right py-2 px-2 text-slate-400 font-medium">Value</th>
+                                                                <th className="text-center py-2 px-2 text-slate-400 font-medium">Dir</th>
+                                                                <th className="text-left py-2 px-2 text-slate-400 font-medium">Counter</th>
+                                                                <th className="text-center py-2 px-2 text-slate-400 font-medium">Level</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {analysisData.imposter_trades.slice(0, 100).map((trade, i) => (
+                                                                <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/50">
+                                                                    <td className="py-2 px-3 text-slate-500 font-mono">{trade.trade_date?.slice(-5) || '-'}</td>
+                                                                    <td className="py-2 px-2 text-slate-400 font-mono">{trade.trade_time}</td>
+                                                                    <td className="py-2 px-2">
+                                                                        <span className={`font-bold ${trade.direction === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>
+                                                                            {trade.broker_code}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="py-2 px-2 text-right text-white font-mono">{trade.qty.toLocaleString()}</td>
+                                                                    <td className="py-2 px-2 text-right text-teal-400 font-mono">{formatRupiah(trade.value)}</td>
+                                                                    <td className="py-2 px-2 text-center">
+                                                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${trade.direction === 'BUY'
+                                                                            ? 'bg-green-500/20 text-green-400'
+                                                                            : 'bg-red-500/20 text-red-400'
+                                                                            }`}>
+                                                                            {trade.direction}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="py-2 px-2 text-slate-400">{trade.counterparty}</td>
+                                                                    <td className="py-2 px-2 text-center">
+                                                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${trade.level === 'STRONG'
+                                                                            ? 'bg-red-500/20 text-red-400 border border-red-500/40'
+                                                                            : 'bg-orange-500/20 text-orange-400 border border-orange-500/40'
+                                                                            }`}>
+                                                                            {trade.level}
+                                                                        </span>
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                    {analysisData.imposter_trades.length > 100 && (
+                                                        <div className="text-center py-2 text-xs text-slate-500">
+                                                            Showing first 100 of {analysisData.imposter_trades.length} trades
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    )}
+                                </>
+                            )}
+                        </div>
                     )}
                 </div>
             ) : availableTickers.length === 0 ? (

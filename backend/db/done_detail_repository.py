@@ -162,6 +162,217 @@ class DoneDetailRepository(BaseRepository):
         finally:
             conn.close()
     
+    # ============================================
+    # SYNTHESIS MANAGEMENT (Pre-Aggregation)
+    # ============================================
+    
+    def check_synthesis_exists(self, ticker: str, trade_date: str) -> bool:
+        """Check if synthesis exists for ticker/date."""
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM done_detail_synthesis WHERE ticker = ? AND trade_date = ?",
+                (ticker.upper(), trade_date)
+            )
+            count = cursor.fetchone()[0]
+            return count > 0
+        except Exception as e:
+            print(f"[!] Error checking synthesis exists: {e}")
+            return False
+        finally:
+            conn.close()
+    
+    def save_synthesis(self, ticker: str, trade_date: str, 
+                       imposter_data: Dict, speed_data: Dict, combined_data: Dict,
+                       raw_record_count: int, raw_data_hash: str = None) -> bool:
+        """
+        Save pre-computed synthesis results.
+        
+        Args:
+            ticker: Stock symbol
+            trade_date: Date string (YYYY-MM-DD)
+            imposter_data: Imposter analysis results dict
+            speed_data: Speed analysis results dict
+            combined_data: Combined analysis results dict
+            raw_record_count: Number of raw records processed
+            raw_data_hash: Optional MD5 hash of raw data for audit
+        
+        Returns:
+            True if successful
+        """
+        import json
+        
+        conn = self._get_conn()
+        try:
+            # Upsert (INSERT OR REPLACE)
+            query = """
+            INSERT OR REPLACE INTO done_detail_synthesis 
+            (ticker, trade_date, analysis_version, calculated_at, 
+             raw_record_count, raw_data_hash, imposter_data, speed_data, combined_data)
+            VALUES (?, ?, '1.0.0', datetime('now'), ?, ?, ?, ?, ?)
+            """
+            conn.execute(query, (
+                ticker.upper(),
+                trade_date,
+                raw_record_count,
+                raw_data_hash,
+                json.dumps(imposter_data, ensure_ascii=False),
+                json.dumps(speed_data, ensure_ascii=False),
+                json.dumps(combined_data, ensure_ascii=False)
+            ))
+            conn.commit()
+            print(f"[*] Saved synthesis for {ticker} on {trade_date} ({raw_record_count} records)")
+            return True
+        except Exception as e:
+            print(f"[!] Error saving synthesis: {e}")
+            import traceback
+            traceback.print_exc()
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+    
+    def get_synthesis(self, ticker: str, trade_date: str) -> Optional[Dict]:
+        """
+        Get pre-computed synthesis for ticker/date.
+        
+        Returns:
+            Dict with imposter_data, speed_data, combined_data or None
+        """
+        import json
+        
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """
+                SELECT imposter_data, speed_data, combined_data, 
+                       raw_record_count, analysis_version, calculated_at
+                FROM done_detail_synthesis 
+                WHERE ticker = ? AND trade_date = ?
+                """,
+                (ticker.upper(), trade_date)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            
+            return {
+                "imposter_data": json.loads(row[0]) if row[0] else {},
+                "speed_data": json.loads(row[1]) if row[1] else {},
+                "combined_data": json.loads(row[2]) if row[2] else {},
+                "raw_record_count": row[3],
+                "analysis_version": row[4],
+                "calculated_at": row[5]
+            }
+        except Exception as e:
+            print(f"[!] Error getting synthesis: {e}")
+            return None
+        finally:
+            conn.close()
+    
+    def get_synthesis_range(self, ticker: str, start_date: str, end_date: str) -> List[Dict]:
+        """
+        Get synthesis records for a date range.
+        
+        Returns:
+            List of synthesis dicts
+        """
+        import json
+        
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """
+                SELECT trade_date, imposter_data, speed_data, combined_data
+                FROM done_detail_synthesis 
+                WHERE ticker = ? AND trade_date >= ? AND trade_date <= ?
+                ORDER BY trade_date DESC
+                """,
+                (ticker.upper(), start_date, end_date)
+            )
+            results = []
+            for row in cursor.fetchall():
+                results.append({
+                    "trade_date": row[0],
+                    "imposter_data": json.loads(row[1]) if row[1] else {},
+                    "speed_data": json.loads(row[2]) if row[2] else {},
+                    "combined_data": json.loads(row[3]) if row[3] else {}
+                })
+            return results
+        except Exception as e:
+            print(f"[!] Error getting synthesis range: {e}")
+            return []
+        finally:
+            conn.close()
+    
+    def mark_raw_as_processed(self, ticker: str, trade_date: str) -> bool:
+        """Mark raw records as processed (ready for cleanup after grace period)."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                """
+                UPDATE done_detail_records 
+                SET processed_at = datetime('now')
+                WHERE ticker = ? AND trade_date = ? AND processed_at IS NULL
+                """,
+                (ticker.upper(), trade_date)
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"[!] Error marking raw as processed: {e}")
+            return False
+        finally:
+            conn.close()
+    
+    def delete_old_raw_data(self, days: int = 7) -> int:
+        """
+        Delete raw data older than specified days that has been processed.
+        
+        Args:
+            days: Grace period in days (default 7)
+        
+        Returns:
+            Number of records deleted
+        """
+        conn = self._get_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                DELETE FROM done_detail_records 
+                WHERE processed_at IS NOT NULL 
+                AND processed_at < datetime('now', ?)
+                """,
+                (f'-{days} days',)
+            )
+            conn.commit()
+            deleted = cursor.rowcount
+            if deleted > 0:
+                print(f"[*] Cleaned up {deleted} raw records older than {days} days")
+            return deleted
+        except Exception as e:
+            print(f"[!] Error cleaning up old raw data: {e}")
+            return 0
+        finally:
+            conn.close()
+    
+    def delete_synthesis(self, ticker: str, trade_date: str) -> bool:
+        """Delete synthesis for ticker/date."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "DELETE FROM done_detail_synthesis WHERE ticker = ? AND trade_date = ?",
+                (ticker.upper(), trade_date)
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"[!] Error deleting synthesis: {e}")
+            return False
+        finally:
+            conn.close()
+    
     def get_sankey_data(self, ticker: str, trade_date: str) -> Dict:
         """
         Generate Sankey diagram data from trade records.
@@ -570,7 +781,9 @@ class DoneDetailRepository(BaseRepository):
                 if 'mixed' in categories or ('retail' in categories and 'institutional' in categories):
                     mixed_codes.add(code)
             
-            # Get all transactions in date range
+            
+            # Get ALL transactions in date range for accurate synthesis
+            # Note: This runs once on save, so performance is acceptable
             query = """
             SELECT trade_date, trade_time, price, qty, buyer_type, buyer_code, seller_code, seller_type
             FROM done_detail_records
@@ -617,7 +830,19 @@ class DoneDetailRepository(BaseRepository):
             strong_count = 0
             possible_count = 0
             
-            for _, row in df.iterrows():
+            # Progress tracking
+            total_records = len(df)
+            last_imposter_count = 0
+            
+            for idx, row in enumerate(df.iterrows()):
+                _, row = row  # Unpack the tuple from enumerate
+                
+                # Show progress every 10000 records
+                if (idx + 1) % 10000 == 0 or idx == total_records - 1:
+                    current_imposter_count = len(imposter_trades)
+                    new_imposters = current_imposter_count - last_imposter_count
+                    print(f"\r      📍 Scanning: {idx + 1:,}/{total_records:,} | Imposters found: {current_imposter_count:,} (+{new_imposters:,})", end="", flush=True)
+                    last_imposter_count = current_imposter_count
                 buyer = row['buyer_code']
                 seller = row['seller_code']
                 qty = int(row['qty'])
@@ -691,9 +916,10 @@ class DoneDetailRepository(BaseRepository):
                             possible_count += 1
                         
                         if buyer not in imposter_broker_stats:
-                            imposter_broker_stats[buyer] = {"count": 0, "total_value": 0, "total_lot": 0, "buy_count": 0, "sell_count": 0, "strong": 0, "possible": 0}
+                            imposter_broker_stats[buyer] = {"count": 0, "total_value": 0, "total_lot": 0, "buy_count": 0, "sell_count": 0, "strong": 0, "possible": 0, "buy_value": 0, "sell_value": 0}
                         imposter_broker_stats[buyer]["count"] += 1
                         imposter_broker_stats[buyer]["buy_count"] += 1
+                        imposter_broker_stats[buyer]["buy_value"] += value
                         imposter_broker_stats[buyer]["total_value"] += value
                         imposter_broker_stats[buyer]["total_lot"] += qty
                         imposter_broker_stats[buyer][level.lower()] += 1
@@ -736,9 +962,10 @@ class DoneDetailRepository(BaseRepository):
                                 possible_count += 1
                         
                         if seller not in imposter_broker_stats:
-                            imposter_broker_stats[seller] = {"count": 0, "total_value": 0, "total_lot": 0, "buy_count": 0, "sell_count": 0, "strong": 0, "possible": 0}
+                            imposter_broker_stats[seller] = {"count": 0, "total_value": 0, "total_lot": 0, "buy_count": 0, "sell_count": 0, "strong": 0, "possible": 0, "buy_value": 0, "sell_value": 0}
                         imposter_broker_stats[seller]["count"] += 1
                         imposter_broker_stats[seller]["sell_count"] += 1
+                        imposter_broker_stats[seller]["sell_value"] += value
                         imposter_broker_stats[seller]["total_value"] += value
                         imposter_broker_stats[seller]["total_lot"] += qty
                         imposter_broker_stats[seller][level.lower()] += 1
@@ -750,9 +977,12 @@ class DoneDetailRepository(BaseRepository):
                 {
                     "broker": code,
                     "name": broker_info.get(code, {}).get('name', code),
+                    "broker_type": "retail" if code in retail_codes else "mixed",
                     "count": stats["count"],
                     "buy_count": stats["buy_count"],
                     "sell_count": stats["sell_count"],
+                    "buy_value": stats.get("buy_value", 0),
+                    "sell_value": stats.get("sell_value", 0),
                     "total_value": stats["total_value"],
                     "total_lot": stats["total_lot"],
                     "strong_count": stats["strong"],
@@ -772,9 +1002,9 @@ class DoneDetailRepository(BaseRepository):
                     "median": int(median_lot),
                     "mean": int(mean_lot)
                 },
-                "all_trades": all_trades[:500],  # Limit for performance
-                "imposter_trades": imposter_trades,
-                "by_broker": by_broker,
+                "all_trades": all_trades[:100],  # Limited to prevent socket hang up
+                "imposter_trades": imposter_trades[:200],  # Limited to prevent socket hang up
+                "by_broker": by_broker[:30],  # Top 30 brokers
                 "summary": {
                     "total_value": total_value,
                     "total_lot": total_lot,
@@ -843,7 +1073,9 @@ class DoneDetailRepository(BaseRepository):
             
             broker_info = {b.get('code', ''): b.get('name', '') for b in broker_data.get('brokers', [])}
             
-            # Get all transactions
+            
+            
+            # Get ALL transactions for accurate speed analysis
             query = """
             SELECT trade_date, trade_time, price, qty, buyer_code, seller_code
             FROM done_detail_records
@@ -868,20 +1100,32 @@ class DoneDetailRepository(BaseRepository):
                     }
                 }
             
-            # Analyze trades per second
+            # Track trades per second and broker activity
             trades_per_second = defaultdict(int)
-            broker_speed = defaultdict(lambda: {"trades": 0, "buy": 0, "sell": 0, "value": 0, "seconds_active": set()})
+            broker_second_counts = defaultdict(lambda: defaultdict(int)) # { 'YP': { 'HH:MM:SS': 5 } }
             
-            for _, row in df.iterrows():
+            broker_speed = defaultdict(lambda: {
+                "trades": 0, "buy": 0, "sell": 0, 
+                "value": 0, "seconds_active": set()
+            })
+            
+            # Progress tracking for speed analysis
+            total_records = len(df)
+    
+            for idx, (_, row) in enumerate(df.iterrows()):
                 trade_time = row['trade_time']
                 buyer = row['buyer_code']
                 seller = row['seller_code']
                 qty = int(row['qty'])
                 price = float(row['price'])
                 value = qty * price * 100
+                # Track global speed
+                time_key = trade_time  # HH:MM:SS
+                trades_per_second[time_key] += 1
                 
-                # Count trades per second
-                trades_per_second[trade_time] += 1
+                # Track per-broker speed for filtering
+                broker_second_counts[buyer][time_key] += 1
+                broker_second_counts[seller][time_key] += 1
                 
                 # Track broker speed
                 broker_speed[buyer]["trades"] += 1
@@ -893,6 +1137,11 @@ class DoneDetailRepository(BaseRepository):
                 broker_speed[seller]["sell"] += 1
                 broker_speed[seller]["value"] += value
                 broker_speed[seller]["seconds_active"].add(trade_time)
+                
+                # Show progress every 10000 records
+                if (idx + 1) % 10000 == 0 or idx == total_records - 1:
+                    unique_seconds = len(trades_per_second)
+                    print(f"\r      📍 Scanning: {idx + 1:,}/{total_records:,} | Time slots: {unique_seconds:,}", end="", flush=True)
             
             # Find burst events (>= 10 trades in 1 second)
             burst_events = []
@@ -922,6 +1171,21 @@ class DoneDetailRepository(BaseRepository):
             
             # Sort by total trades descending
             speed_by_broker.sort(key=lambda x: x["total_trades"], reverse=True)
+
+            # Generate Timelines for Top 10 Speed Brokers (limited for performance)
+            broker_timelines = {}
+            top_speed_brokers = [b["broker"] for b in speed_by_broker[:10]]  # Reduced from 20
+            
+            for broker in top_speed_brokers:
+                b_timeline = []
+                # Use the global seconds set to ensure continuity or just sparse data? 
+                # Sparse is better for json size.
+                if broker in broker_second_counts:
+                    sorted_points = sorted(broker_second_counts[broker].items())
+                    # Limit to 100 time points per broker
+                    for t, c in sorted_points[:100]:
+                        b_timeline.append({"time": t, "trades": c})
+                broker_timelines[broker] = b_timeline
             
             # Create timeline (trades per minute)
             trades_per_minute = defaultdict(int)
@@ -944,9 +1208,10 @@ class DoneDetailRepository(BaseRepository):
             return {
                 "ticker": ticker.upper(),
                 "date_range": {"start": start_date, "end": end_date},
-                "speed_by_broker": speed_by_broker[:50],  # Top 50
-                "burst_events": burst_events[:50],  # Top 50 bursts
-                "timeline": timeline,
+                "speed_by_broker": speed_by_broker[:30],  # Top 30 (reduced from 50)
+                "broker_timelines": broker_timelines,     # Top 10, max 100 points each
+                "burst_events": burst_events[:30],  # Top 30 bursts (reduced from 50)
+                "timeline": timeline[:120],  # Limited to ~2 hours of per-minute data
                 "summary": {
                     "total_trades": total_trades,
                     "unique_seconds": unique_seconds,
@@ -963,6 +1228,7 @@ class DoneDetailRepository(BaseRepository):
                 "ticker": ticker.upper(),
                 "date_range": {"start": start_date, "end": end_date},
                 "speed_by_broker": [],
+                "broker_timelines": {},
                 "burst_events": [],
                 "timeline": [],
                 "summary": {
@@ -993,8 +1259,8 @@ class DoneDetailRepository(BaseRepository):
             speed_data = self.analyze_speed(ticker, start_date, end_date)
             
             # Extract impostor trades and stats
-            impostor_trades = impostor_data.get("trades", [])
-            impostor_broker_stats = impostor_data.get("broker_stats", [])
+            impostor_trades = impostor_data.get("imposter_trades", [])
+            impostor_broker_stats = impostor_data.get("by_broker", [])
             impostor_summary = impostor_data.get("summary", {})
             
             # Extract speed stats
@@ -1011,10 +1277,10 @@ class DoneDetailRepository(BaseRepository):
             
             for trade in impostor_trades:
                 value = trade.get("value", 0)
-                if trade.get("side") == "B":
+                if trade.get("direction") == "BUY":
                     impostor_buy_value += value
                     impostor_buy_count += 1
-                else:
+                elif trade.get("direction") == "SELL":
                     impostor_sell_value += value
                     impostor_sell_count += 1
             
@@ -1034,7 +1300,7 @@ class DoneDetailRepository(BaseRepository):
             impostor_broker_codes = set()
             impostor_broker_data = {}
             for broker in impostor_broker_stats[:10]:
-                code = broker.get("broker_code", "")
+                code = broker.get("broker", "")
                 impostor_broker_codes.add(code)
                 impostor_broker_data[code] = broker
             
@@ -1042,7 +1308,7 @@ class DoneDetailRepository(BaseRepository):
             speed_broker_codes = set()
             speed_broker_data = {}
             for broker in speed_by_broker[:10]:
-                code = broker.get("broker_code", "")
+                code = broker.get("broker", "")
                 speed_broker_codes.add(code)
                 speed_broker_data[code] = broker
             
@@ -1066,10 +1332,10 @@ class DoneDetailRepository(BaseRepository):
                 
                 power_brokers.append({
                     "broker_code": code,
-                    "broker_name": imp_data.get("broker_name", ""),
-                    "broker_type": imp_data.get("broker_type", ""),
+                    "broker_name": imp_data.get("name", ""),
+                    "broker_type": imp_data.get("broker_type", "mixed"), # Defaulting as type not in summary
                     "impostor_value": imp_total_value,
-                    "impostor_count": imp_data.get("trade_count", 0),
+                    "impostor_count": imp_data.get("count", 0),
                     "strong_count": imp_data.get("strong_count", 0),
                     "possible_count": imp_data.get("possible_count", 0),
                     "speed_trades": spd_total_trades,
@@ -1189,9 +1455,10 @@ class DoneDetailRepository(BaseRepository):
                 },
                 "timeline": timeline,
                 "burst_events": burst_events,
-                "thresholds": impostor_data.get("thresholds", {}),
-                "imposter_analysis": impostor_data,
-                "speed_analysis": speed_data
+                "thresholds": impostor_data.get("thresholds", {})
+                # Note: Removed 'imposter_analysis' and 'speed_analysis' to prevent
+                # socket hang up errors from massive response payloads (10-20MB).
+                # Use dedicated /imposter/{ticker} and /speed/{ticker} endpoints if full data needed.
             }
             
         except Exception as e:
@@ -1372,3 +1639,483 @@ class DoneDetailRepository(BaseRepository):
             return {"error": str(e)}
         finally:
             conn.close()
+
+    def get_range_analysis(self, ticker: str, start_date: str, end_date: str) -> Dict:
+        """
+        Analyze range of dates for:
+        1. Retail Capitulation (50% Rule)
+        2. Imposter Recurrence (Ghost Broker Detection)
+        3. Battle Timeline (Daily Imposter Activity)
+        """
+        import json
+        import os
+        import numpy as np
+        from collections import defaultdict
+        
+        conn = self._get_conn()
+        try:
+            # Load broker classification
+            broker_file = os.path.join(os.path.dirname(__file__), "..", "data", "brokers_idx.json")
+            broker_info = {}
+            retail_codes = set()
+            mixed_codes = set()
+            
+            if os.path.exists(broker_file):
+                with open(broker_file, 'r') as f:
+                    broker_data = json.load(f)
+                # Handle both formats: {"brokers": [...]} and just [...]
+                broker_list = broker_data.get("brokers", broker_data) if isinstance(broker_data, dict) else broker_data
+                for b in broker_list:
+                    if not isinstance(b, dict):
+                        continue
+                    code = b.get("code", "")
+                    broker_info[code] = b
+                    categories = b.get("category", [])
+                    if "retail" in categories:
+                        retail_codes.add(code)
+                    if "institutional" not in categories and "foreign" not in categories:
+                        mixed_codes.add(code)
+            
+            # Get all records in range
+            query = """
+            SELECT trade_date, trade_time, buyer_code, seller_code, qty, price
+            FROM done_detail_records
+            WHERE ticker = ? AND trade_date >= ? AND trade_date <= ?
+            ORDER BY trade_date, trade_time
+            """
+            df = pd.read_sql(query, conn, params=(ticker.upper(), start_date, end_date))
+            
+            if df.empty:
+                return {
+                    "ticker": ticker.upper(),
+                    "date_range": {"start": start_date, "end": end_date},
+                    "retail_capitulation": {"brokers": [], "overall_pct": 0, "safe_count": 0, "holding_count": 0},
+                    "imposter_recurrence": {"brokers": []},
+                    "battle_timeline": [],
+                    "summary": {}
+                }
+            
+            # Calculate value
+            df['value'] = df['qty'].astype(float) * df['price'].astype(float) * 100
+            
+            # Get unique dates
+            unique_dates = sorted(df['trade_date'].unique())
+            total_days = len(unique_dates)
+            
+            # Calculate P95 threshold for imposter detection
+            all_qty = df['qty'].values
+            p95_threshold = float(np.percentile(all_qty, 95))
+            
+            # ===== SECTION 1: Retail Capitulation (50% Rule) =====
+            retail_broker_codes = retail_codes | mixed_codes
+            retail_daily_net = defaultdict(lambda: defaultdict(float))  # {broker: {date: net_value}}
+            
+            for _, row in df.iterrows():
+                buyer = row['buyer_code']
+                seller = row['seller_code']
+                value = row['value']
+                date = row['trade_date']
+                
+                # Track retail net position per day
+                if buyer in retail_broker_codes:
+                    retail_daily_net[buyer][date] += value
+                if seller in retail_broker_codes:
+                    retail_daily_net[seller][date] -= value
+            
+            # Calculate cumulative and 50% rule
+            retail_capitulation = []
+            overall_distributed = 0
+            overall_peak = 0
+            safe_count = 0
+            holding_count = 0
+            
+            for broker, daily_vals in retail_daily_net.items():
+                # Calculate cumulative position over time
+                cumulative = 0
+                peak_position = 0
+                cumulative_history = []
+                
+                for date in unique_dates:
+                    cumulative += daily_vals.get(date, 0)
+                    cumulative_history.append({"date": date, "cumulative": cumulative})
+                    if cumulative > peak_position:
+                        peak_position = cumulative
+                
+                current_position = cumulative
+                
+                # Calculate distribution percentage
+                if peak_position > 0:
+                    distributed_amount = peak_position - current_position
+                    distribution_pct = (distributed_amount / peak_position) * 100
+                else:
+                    distribution_pct = 0
+                
+                is_safe = distribution_pct >= 50
+                
+                if peak_position > 1000000:  # Only include brokers with significant activity (>1M)
+                    retail_capitulation.append({
+                        "broker": broker,
+                        "name": broker_info.get(broker, {}).get("name", broker),
+                        "peak_position": peak_position,
+                        "current_position": max(0, current_position),
+                        "distribution_pct": round(distribution_pct, 1),
+                        "is_safe": is_safe,
+                        "history": cumulative_history[-7:] if len(cumulative_history) > 7 else cumulative_history
+                    })
+                    
+                    overall_peak += peak_position
+                    overall_distributed += (peak_position - current_position) if current_position < peak_position else 0
+                    
+                    if is_safe:
+                        safe_count += 1
+                    else:
+                        holding_count += 1
+            
+            # Sort by peak position (most significant first)
+            retail_capitulation.sort(key=lambda x: x["peak_position"], reverse=True)
+            
+            overall_pct = (overall_distributed / overall_peak * 100) if overall_peak > 0 else 0
+            
+            # ===== SECTION 2: Imposter Recurrence =====
+            imposter_daily = defaultdict(lambda: defaultdict(lambda: {"count": 0, "value": 0, "lots": []}))
+            # {broker: {date: {count, value, lots}}}
+            
+            for _, row in df.iterrows():
+                buyer = row['buyer_code']
+                seller = row['seller_code']
+                qty = int(row['qty'])
+                value = row['value']
+                date = row['trade_date']
+                
+                # Check if imposter (retail buying/selling with large lot)
+                if buyer in retail_broker_codes and qty >= p95_threshold:
+                    imposter_daily[buyer][date]["count"] += 1
+                    imposter_daily[buyer][date]["value"] += value
+                    imposter_daily[buyer][date]["lots"].append(qty)
+                
+                if seller in retail_broker_codes and qty >= p95_threshold:
+                    imposter_daily[seller][date]["count"] += 1
+                    imposter_daily[seller][date]["value"] += value
+                    imposter_daily[seller][date]["lots"].append(qty)
+            
+            imposter_recurrence = []
+            for broker, daily_data in imposter_daily.items():
+                days_active = len(daily_data)
+                total_value = sum(d["value"] for d in daily_data.values())
+                total_count = sum(d["count"] for d in daily_data.values())
+                all_lots = [lot for d in daily_data.values() for lot in d["lots"]]
+                avg_lot = sum(all_lots) / len(all_lots) if all_lots else 0
+                
+                recurrence_pct = (days_active / total_days) * 100 if total_days > 0 else 0
+                
+                # Daily activity for heatmap
+                daily_activity = [
+                    {"date": date, "value": data["value"], "count": data["count"]}
+                    for date, data in sorted(daily_data.items())
+                ]
+                
+                imposter_recurrence.append({
+                    "broker": broker,
+                    "name": broker_info.get(broker, {}).get("name", broker),
+                    "days_active": days_active,
+                    "total_days": total_days,
+                    "recurrence_pct": round(recurrence_pct, 1),
+                    "total_value": total_value,
+                    "total_count": total_count,
+                    "avg_lot": round(avg_lot, 0),
+                    "daily_activity": daily_activity
+                })
+            
+            # Sort by recurrence percentage
+            imposter_recurrence.sort(key=lambda x: x["recurrence_pct"], reverse=True)
+            
+            # ===== SECTION 3: Battle Timeline =====
+            battle_timeline = []
+            for date in unique_dates:
+                date_df = df[df['trade_date'] == date]
+                
+                total_imposter_value = 0
+                broker_breakdown = {}
+                
+                for _, row in date_df.iterrows():
+                    buyer = row['buyer_code']
+                    seller = row['seller_code']
+                    qty = int(row['qty'])
+                    value = row['value']
+                    
+                    if buyer in retail_broker_codes and qty >= p95_threshold:
+                        total_imposter_value += value
+                        broker_breakdown[buyer] = broker_breakdown.get(buyer, 0) + value
+                    
+                    if seller in retail_broker_codes and qty >= p95_threshold:
+                        total_imposter_value += value
+                        broker_breakdown[seller] = broker_breakdown.get(seller, 0) + value
+                
+                battle_timeline.append({
+                    "date": date,
+                    "total_imposter_value": total_imposter_value,
+                    "trade_count": len(date_df),
+                    "broker_breakdown": broker_breakdown
+                })
+            
+            # ===== SECTION 4: Summary =====
+            total_imposter_trades = sum(1 for _, row in df.iterrows() 
+                                        if (row['buyer_code'] in retail_broker_codes or row['seller_code'] in retail_broker_codes) 
+                                        and int(row['qty']) >= p95_threshold)
+            
+            top_ghost = imposter_recurrence[0]["broker"] if imposter_recurrence else None
+            
+            peak_day = max(battle_timeline, key=lambda x: x["total_imposter_value"]) if battle_timeline else None
+            
+            avg_lot_all = sum(r["avg_lot"] for r in imposter_recurrence) / len(imposter_recurrence) if imposter_recurrence else 0
+            
+            total_trades = len(df)
+            avg_daily_imposter_pct = (total_imposter_trades / total_trades * 100) if total_trades > 0 else 0
+            
+            summary = {
+                "total_imposter_trades": total_imposter_trades,
+                "top_ghost_broker": top_ghost,
+                "top_ghost_name": broker_info.get(top_ghost, {}).get("name", top_ghost) if top_ghost else None,
+                "peak_day": peak_day["date"] if peak_day else None,
+                "peak_value": peak_day["total_imposter_value"] if peak_day else 0,
+                "avg_lot": round(avg_lot_all, 0),
+                "avg_daily_imposter_pct": round(avg_daily_imposter_pct, 1),
+                "total_days": total_days,
+                "retail_capitulation_pct": round(overall_pct, 1)
+            }
+            
+            return {
+                "ticker": ticker.upper(),
+                "date_range": {"start": start_date, "end": end_date},
+                "retail_capitulation": {
+                    "brokers": retail_capitulation[:15],  # Top 15
+                    "overall_pct": round(overall_pct, 1),
+                    "safe_count": safe_count,
+                    "holding_count": holding_count
+                },
+                "imposter_recurrence": {
+                    "brokers": imposter_recurrence[:15]  # Top 15
+                },
+                "battle_timeline": battle_timeline,
+                "summary": summary
+            }
+            
+        except Exception as e:
+            print(f"[!] Error in range analysis: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "ticker": ticker.upper(),
+                "date_range": {"start": start_date, "end": end_date},
+                "error": str(e)
+            }
+        finally:
+            conn.close()
+
+    def get_range_analysis_from_synthesis(self, ticker: str, start_date: str, end_date: str) -> Dict:
+        """
+        Aggregate range analysis from pre-computed single-day synthesis data.
+        
+        This is MUCH faster than get_range_analysis() which processes raw data.
+        Uses imposter_data from each day's synthesis to build:
+        1. Retail Capitulation (50% Rule)
+        2. Imposter Recurrence
+        3. Battle Timeline
+        
+        Returns:
+            Range analysis aggregated from synthesis data
+        """
+        import json
+        import os
+        from collections import defaultdict
+        
+        try:
+            # Get all synthesis records in range
+            synthesis_list = self.get_synthesis_range(ticker, start_date, end_date)
+            
+            if not synthesis_list:
+                # Fallback to raw data processing
+                print(f"[!] No synthesis found for {ticker} {start_date}-{end_date}, falling back to raw...")
+                return self.get_range_analysis(ticker, start_date, end_date)
+            
+            # Load broker info for names
+            broker_file = os.path.join(os.path.dirname(__file__), "..", "data", "brokers_idx.json")
+            broker_info = {}
+            retail_codes = set()
+            
+            if os.path.exists(broker_file):
+                with open(broker_file, 'r') as f:
+                    broker_data = json.load(f)
+                # Handle both formats: {"brokers": [...]} and just [...]
+                broker_list = broker_data.get("brokers", broker_data) if isinstance(broker_data, dict) else broker_data
+                for b in broker_list:
+                    if not isinstance(b, dict):
+                        continue
+                    code = b.get("code", "")
+                    broker_info[code] = b
+                    categories = b.get("category", [])
+                    if "retail" in categories:
+                        retail_codes.add(code)
+            
+            total_days = len(synthesis_list)
+            all_dates = [s["trade_date"] for s in synthesis_list]
+            
+            # ===== AGGREGATE IMPOSTER DATA =====
+            broker_daily_imposter = defaultdict(lambda: defaultdict(float))  # {broker: {date: value}}
+            broker_total_imposter = defaultdict(float)
+            broker_buy_sell = defaultdict(lambda: {"buy": 0, "sell": 0})
+            daily_imposter_totals = {}
+            
+            for syn in synthesis_list:
+                date = syn["trade_date"]
+                imposter_data = syn.get("imposter_data", {})
+                
+                # Get by_broker data
+                by_broker = imposter_data.get("by_broker", [])
+                daily_total = 0
+                
+                for broker_stat in by_broker:
+                    broker = broker_stat.get("broker", "")
+                    total_value = broker_stat.get("total_value", 0)
+                    buy_value = broker_stat.get("buy_value", 0)
+                    sell_value = broker_stat.get("sell_value", 0)
+                    
+                    broker_daily_imposter[broker][date] = total_value
+                    broker_total_imposter[broker] += total_value
+                    broker_buy_sell[broker]["buy"] += buy_value
+                    broker_buy_sell[broker]["sell"] += sell_value
+                    daily_total += total_value
+                
+                daily_imposter_totals[date] = daily_total
+            
+            # ===== 1. RETAIL CAPITULATION (50% Rule) =====
+            # For retail brokers, calculate if they've distributed >= 50%
+            retail_capitulation = []
+            safe_count = 0
+            holding_count = 0
+            
+            for broker in retail_codes:
+                if broker not in broker_total_imposter:
+                    continue
+                
+                buy = broker_buy_sell[broker]["buy"]
+                sell = broker_buy_sell[broker]["sell"]
+                total = buy + sell
+                
+                if total == 0:
+                    continue
+                
+                # Calculate distribution percentage
+                if buy > sell:
+                    # Net buyer - holding
+                    distribution_pct = 0
+                    is_safe = False
+                    holding_count += 1
+                else:
+                    # Net seller - distributing
+                    distribution_pct = min(100, (sell - buy) / total * 100 * 2) if total > 0 else 0
+                    is_safe = distribution_pct >= 50
+                    if is_safe:
+                        safe_count += 1
+                    else:
+                        holding_count += 1
+                
+                retail_capitulation.append({
+                    "broker": broker,
+                    "name": broker_info.get(broker, {}).get("name", broker),
+                    "buy_value": int(buy),
+                    "sell_value": int(sell),
+                    "net_value": int(buy - sell),
+                    "distribution_pct": round(distribution_pct, 1),
+                    "is_safe": is_safe,
+                    "days_active": len([d for d in all_dates if broker_daily_imposter[broker].get(d, 0) > 0])
+                })
+            
+            # Sort by distribution percentage descending
+            retail_capitulation.sort(key=lambda x: x["distribution_pct"], reverse=True)
+            overall_pct = sum(r["distribution_pct"] for r in retail_capitulation) / len(retail_capitulation) if retail_capitulation else 0
+            
+            # ===== 2. IMPOSTER RECURRENCE =====
+            imposter_recurrence = []
+            
+            for broker, total_value in sorted(broker_total_imposter.items(), key=lambda x: x[1], reverse=True):
+                days_active = len([d for d in all_dates if broker_daily_imposter[broker].get(d, 0) > 0])
+                recurrence_pct = (days_active / total_days * 100) if total_days > 0 else 0
+                
+                daily_activity = []
+                for date in sorted(all_dates):
+                    daily_activity.append({
+                        "date": date,
+                        "value": int(broker_daily_imposter[broker].get(date, 0))
+                    })
+                
+                imposter_recurrence.append({
+                    "broker": broker,
+                    "name": broker_info.get(broker, {}).get("name", broker),
+                    "days_active": days_active,
+                    "total_days": total_days,
+                    "recurrence_pct": round(recurrence_pct, 1),
+                    "total_value": int(total_value),
+                    "daily_activity": daily_activity
+                })
+            
+            # ===== 3. BATTLE TIMELINE =====
+            battle_timeline = []
+            peak_day = None
+            
+            for date in sorted(all_dates):
+                total_value = daily_imposter_totals.get(date, 0)
+                
+                # Get broker breakdown for this day
+                broker_breakdown = {}
+                for broker in broker_daily_imposter:
+                    val = broker_daily_imposter[broker].get(date, 0)
+                    if val > 0:
+                        broker_breakdown[broker] = int(val)
+                
+                day_entry = {
+                    "date": date,
+                    "total_imposter_value": int(total_value),
+                    "broker_breakdown": broker_breakdown
+                }
+                battle_timeline.append(day_entry)
+                
+                if peak_day is None or total_value > peak_day["total_imposter_value"]:
+                    peak_day = day_entry
+            
+            # ===== SUMMARY =====
+            top_ghost = imposter_recurrence[0]["broker"] if imposter_recurrence else None
+            
+            summary = {
+                "total_imposter_value": sum(daily_imposter_totals.values()),
+                "top_ghost_broker": top_ghost,
+                "top_ghost_name": broker_info.get(top_ghost, {}).get("name", top_ghost) if top_ghost else None,
+                "peak_day": peak_day["date"] if peak_day else None,
+                "peak_value": peak_day["total_imposter_value"] if peak_day else 0,
+                "total_days": total_days,
+                "retail_capitulation_pct": round(overall_pct, 1),
+                "synthesis_based": True  # Flag to indicate this used synthesis
+            }
+            
+            return {
+                "ticker": ticker.upper(),
+                "date_range": {"start": start_date, "end": end_date},
+                "retail_capitulation": {
+                    "brokers": retail_capitulation[:15],
+                    "overall_pct": round(overall_pct, 1),
+                    "safe_count": safe_count,
+                    "holding_count": holding_count
+                },
+                "imposter_recurrence": {
+                    "brokers": imposter_recurrence[:15]
+                },
+                "battle_timeline": battle_timeline,
+                "summary": summary
+            }
+            
+        except Exception as e:
+            print(f"[!] Error in synthesis-based range analysis: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback to raw data
+            return self.get_range_analysis(ticker, start_date, end_date)
