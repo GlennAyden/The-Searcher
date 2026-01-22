@@ -133,8 +133,7 @@ export const SpeedTreemap: React.FC<SpeedTreemapProps> = ({
                     stroke="#fff"
                     fill="#8884d8"
                     content={<CustomizeContent />}
-                    onClick={(node) => onBrokerClick && onBrokerClick(node.name)}
-                    cursor="pointer"
+                    onClick={(node: any) => onBrokerClick && node?.name && onBrokerClick(node.name)}
                     animationDuration={800}
                 >
                     <Tooltip content={<CustomTooltip />} />

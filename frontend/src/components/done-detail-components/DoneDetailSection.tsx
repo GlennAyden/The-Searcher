@@ -24,8 +24,10 @@ import { SpeedTreemap } from './SpeedTreemap';
 import { RetailCapitulationMonitor } from './RetailCapitulationMonitor';
 import { ImposterRecurrenceHeatmap } from './ImposterRecurrenceHeatmap';
 import { GhostBrokerRanking } from './GhostBrokerRanking';
-import { BattleTimelineChart } from './BattleTimelineChart';
+import { BattleTimelineChartV2 } from './BattleTimelineChartV2';
+import { BattleTimelineSummary } from './BattleTimelineSummary';
 import { RangeSummaryCards } from './RangeSummaryCards';
+import { DetailedImposterTrades } from './DetailedImposterTrades';
 
 interface DoneDetailSectionProps {
     ticker: string;
@@ -1371,79 +1373,25 @@ export function DoneDetailSection({ ticker, onTickerChange }: DoneDetailSectionP
                                             ⚔️ Section 3: Battle Timeline
                                             <span className="text-xs text-slate-500 font-normal">(Daily Smart Money Activity)</span>
                                         </div>
-                                        <BattleTimelineChart
+                                        {/* Summary Stats */}
+                                        <BattleTimelineSummary
+                                            summary={rangeData.summary}
+                                            timeline={rangeData.battle_timeline}
+                                        />
+                                        {/* Enhanced Chart */}
+                                        <BattleTimelineChartV2
                                             data={rangeData.battle_timeline}
-                                            height={300}
+                                            summary={rangeData.summary}
+                                            height={400}
                                         />
                                     </div>
 
-                                    {/* Section 5: Detailed Imposter Trade List */}
+                                    {/* Section 4: Whale Scanner */}
                                     {analysisData && analysisData.imposter_trades.length > 0 && (
-                                        <Card className="bg-slate-900/50 border-slate-700">
-                                            <CardHeader className="py-2 px-4 border-b border-slate-700">
-                                                <CardTitle className="text-sm text-red-400 flex items-center gap-2">
-                                                    📋 Section 4: Detailed Imposter Trades
-                                                    <span className="text-xs text-slate-500 font-normal">
-                                                        ({analysisData.imposter_trades.length} trades)
-                                                    </span>
-                                                </CardTitle>
-                                            </CardHeader>
-                                            <CardContent className="py-2 px-0">
-                                                <div className="max-h-[400px] overflow-y-auto">
-                                                    <table className="w-full text-xs">
-                                                        <thead className="sticky top-0 bg-slate-900 z-10">
-                                                            <tr className="border-b border-slate-700">
-                                                                <th className="text-left py-2 px-3 text-slate-400 font-medium">Date</th>
-                                                                <th className="text-left py-2 px-2 text-slate-400 font-medium">Time</th>
-                                                                <th className="text-left py-2 px-2 text-slate-400 font-medium">Broker</th>
-                                                                <th className="text-right py-2 px-2 text-slate-400 font-medium">Lot</th>
-                                                                <th className="text-right py-2 px-2 text-slate-400 font-medium">Value</th>
-                                                                <th className="text-center py-2 px-2 text-slate-400 font-medium">Dir</th>
-                                                                <th className="text-left py-2 px-2 text-slate-400 font-medium">Counter</th>
-                                                                <th className="text-center py-2 px-2 text-slate-400 font-medium">Level</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {analysisData.imposter_trades.slice(0, 100).map((trade, i) => (
-                                                                <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/50">
-                                                                    <td className="py-2 px-3 text-slate-500 font-mono">{trade.trade_date?.slice(-5) || '-'}</td>
-                                                                    <td className="py-2 px-2 text-slate-400 font-mono">{trade.trade_time}</td>
-                                                                    <td className="py-2 px-2">
-                                                                        <span className={`font-bold ${trade.direction === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>
-                                                                            {trade.broker_code}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td className="py-2 px-2 text-right text-white font-mono">{trade.qty.toLocaleString()}</td>
-                                                                    <td className="py-2 px-2 text-right text-teal-400 font-mono">{formatRupiah(trade.value)}</td>
-                                                                    <td className="py-2 px-2 text-center">
-                                                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${trade.direction === 'BUY'
-                                                                            ? 'bg-green-500/20 text-green-400'
-                                                                            : 'bg-red-500/20 text-red-400'
-                                                                            }`}>
-                                                                            {trade.direction}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td className="py-2 px-2 text-slate-400">{trade.counterparty}</td>
-                                                                    <td className="py-2 px-2 text-center">
-                                                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${trade.level === 'STRONG'
-                                                                            ? 'bg-red-500/20 text-red-400 border border-red-500/40'
-                                                                            : 'bg-orange-500/20 text-orange-400 border border-orange-500/40'
-                                                                            }`}>
-                                                                            {trade.level}
-                                                                        </span>
-                                                                    </td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
-                                                    {analysisData.imposter_trades.length > 100 && (
-                                                        <div className="text-center py-2 text-xs text-slate-500">
-                                                            Showing first 100 of {analysisData.imposter_trades.length} trades
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </CardContent>
-                                        </Card>
+                                        <DetailedImposterTrades
+                                            trades={analysisData.imposter_trades}
+                                            onBrokerClick={setSelectedBroker}
+                                        />
                                     )}
                                 </>
                             )}

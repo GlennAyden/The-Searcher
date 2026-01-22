@@ -1002,8 +1002,8 @@ class DoneDetailRepository(BaseRepository):
                     "median": int(median_lot),
                     "mean": int(mean_lot)
                 },
-                "all_trades": all_trades[:100],  # Limited to prevent socket hang up
-                "imposter_trades": imposter_trades[:200],  # Limited to prevent socket hang up
+                "all_trades": all_trades[:2000],  # Increased limit, still capped for safety
+                "imposter_trades": imposter_trades[:5000],  # Significantly increased for range analysis
                 "by_broker": by_broker[:30],  # Top 30 brokers
                 "summary": {
                     "total_value": total_value,

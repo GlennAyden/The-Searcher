@@ -91,7 +91,7 @@ export const BrokerDivergingBars: React.FC<BrokerDivergingBarsProps> = ({
                         radius={[2, 2, 2, 2]}
                         cursor="pointer"
                         className="transition-opacity hover:opacity-80"
-                        onClick={(data) => onBrokerClick && onBrokerClick(data.broker)}
+                        onClick={(data: any) => onBrokerClick && data?.broker && onBrokerClick(data.broker)}
                     >
                         {sortedData.map((entry, index) => (
                             <Cell
