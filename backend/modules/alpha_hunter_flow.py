@@ -1,12 +1,18 @@
 """
 Alpha Hunter Smart Money Flow Analyzer.
-Provides validation logic for Stage 3: checking institutional accumulation,
-retail capitulation, imposter activity, and floor price safety.
+Provides validation logic for Stage 3: smart money vs retail flow and floor price safety.
 """
-from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Set
+import math
+from db.broker_five_repository import BrokerFiveRepository
 from modules.database import DatabaseManager
-from modules.broker_utils import get_retail_brokers, get_imposter_suspects
+from modules.broker_utils import (
+    get_retail_brokers,
+    get_institutional_brokers,
+    get_foreign_brokers,
+    get_stage3_smart_money_overrides,
+    get_stage3_retail_overrides
+)
 
 
 class AlphaHunterFlow:
@@ -23,20 +29,26 @@ class AlphaHunterFlow:
         # Initialize result structure
         result = {
             "ticker": ticker,
-            "institutional_accumulation": {
+            "smart_money_accumulation": {
                 "passed": False,
                 "net_lot": 0,
                 "net_value": 0,
+                "active_days": 0,
+                "total_days": 0,
                 "top_brokers": []
             },
             "retail_capitulation": {
                 "passed": False,
                 "net_lot": 0,
-                "pct_sold": 0
+                "net_value": 0,
+                "active_days": 0,
+                "total_days": 0
             },
-            "imposter_detected": {
+            "smart_vs_retail": {
                 "passed": False,
-                "suspects": []
+                "dominance_pct": 0,
+                "smart_net_lot": 0,
+                "retail_net_lot": 0
             },
             "floor_price_safe": {
                 "passed": False,
@@ -47,68 +59,80 @@ class AlphaHunterFlow:
             "overall_conviction": "LOW",
             "checks_passed": 0,
             "total_checks": 4,
-            "data_available": False
+            "data_available": False,
+            "broker_groups": {
+                "smart_money": [],
+                "retail": [],
+                "broker_five": []
+            }
         }
         
         try:
-            # 1. Get Floor Price Analysis (includes institutional brokers data)
-            floor_data = self.db.get_floor_price_analysis(ticker, days=days if days > 0 else 9999)
-            
+            broker_groups = self._prepare_broker_groups(ticker)
+            smart_brokers = set(broker_groups["smart_money"])
+            retail_brokers = set(broker_groups["retail"])
+            result["broker_groups"] = broker_groups
+
+            flow_summary = self._aggregate_group_flow(ticker, days, smart_brokers, retail_brokers)
+            if flow_summary:
+                result["data_available"] = True
+                result["smart_money_accumulation"]["net_lot"] = flow_summary["smart_net_lot"]
+                result["smart_money_accumulation"]["net_value"] = flow_summary["smart_net_value"]
+                result["smart_money_accumulation"]["active_days"] = flow_summary["smart_days_buy"]
+                result["smart_money_accumulation"]["total_days"] = flow_summary["days_checked"]
+                result["smart_money_accumulation"]["top_brokers"] = flow_summary["smart_top_brokers"]
+
+                result["retail_capitulation"]["net_lot"] = flow_summary["retail_net_lot"]
+                result["retail_capitulation"]["net_value"] = flow_summary["retail_net_value"]
+                result["retail_capitulation"]["active_days"] = flow_summary["retail_days_sell"]
+                result["retail_capitulation"]["total_days"] = flow_summary["days_checked"]
+
+                smart_pass = flow_summary["smart_net_lot"] > 0 and flow_summary["smart_days_buy"] >= flow_summary["consistency_threshold"]
+                retail_pass = flow_summary["retail_net_lot"] < 0 and flow_summary["retail_days_sell"] >= flow_summary["consistency_threshold"]
+                dominance_pass = (
+                    flow_summary["dominance_pct"] >= 60
+                    and flow_summary["smart_net_lot"] > 0
+                    and flow_summary["retail_net_lot"] < 0
+                )
+
+                result["smart_money_accumulation"]["passed"] = smart_pass
+                result["retail_capitulation"]["passed"] = retail_pass
+                result["smart_vs_retail"] = {
+                    "passed": dominance_pass,
+                    "dominance_pct": flow_summary["dominance_pct"],
+                    "smart_net_lot": flow_summary["smart_net_lot"],
+                    "retail_net_lot": flow_summary["retail_net_lot"]
+                }
+
+                if smart_pass:
+                    result["checks_passed"] += 1
+                if retail_pass:
+                    result["checks_passed"] += 1
+                if dominance_pass:
+                    result["checks_passed"] += 1
+
+            # Floor Price Analysis (institutional gross buy based)
+            floor_data = self.db.get_floor_price_analysis(ticker, days=days if days > 0 else 0)
             if floor_data and floor_data.get('confidence') != 'NO_DATA':
                 result["data_available"] = True
-                
-                # Floor Price Check
+
                 floor_price = floor_data.get('floor_price', 0)
                 result["floor_price_safe"]["floor_price"] = floor_price
-                
-                # Get current price from volume history
+
                 vol_history = self.db.get_volume_history(ticker)
                 if vol_history:
                     current_price = vol_history[-1].get('close_price', 0)
                     result["floor_price_safe"]["current_price"] = current_price
-                    
+
                     if floor_price > 0 and current_price > 0:
                         gap_pct = ((current_price - floor_price) / floor_price) * 100
                         result["floor_price_safe"]["gap_pct"] = round(gap_pct, 2)
-                        
-                        # Pass if current price is within 10% above floor
+
                         if gap_pct <= 10:
                             result["floor_price_safe"]["passed"] = True
                             result["checks_passed"] += 1
-                
-                # Institutional Accumulation Check
-                inst_lot = floor_data.get('institutional_buy_lot', 0)
-                inst_value = floor_data.get('institutional_buy_value', 0)
-                inst_brokers = floor_data.get('institutional_brokers', [])
-                
-                result["institutional_accumulation"]["net_lot"] = inst_lot
-                result["institutional_accumulation"]["net_value"] = inst_value
-                result["institutional_accumulation"]["top_brokers"] = [
-                    {"code": b.get('code'), "lot": b.get('total_lot'), "avg_price": b.get('avg_price')}
-                    for b in inst_brokers[:5]
-                ]
-                
-                # Pass if institutional gross buy > 0
-                if inst_lot > 0:
-                    result["institutional_accumulation"]["passed"] = True
-                    result["checks_passed"] += 1
-            
-            # 2. Check Retail Capitulation (from broker summary)
-            # We need to aggregate retail broker net sell
-            retail_analysis = self._analyze_retail_flow(ticker, days)
-            if retail_analysis:
-                result["retail_capitulation"] = retail_analysis
-                if retail_analysis["passed"]:
-                    result["checks_passed"] += 1
-            
-            # 3. Check for Imposters
-            imposter_analysis = self._detect_imposters(ticker, days)
-            if imposter_analysis:
-                result["imposter_detected"] = imposter_analysis
-                if imposter_analysis["passed"]:
-                    result["checks_passed"] += 1
-            
-            # 4. Calculate Overall Conviction
+
+            # Calculate Overall Conviction
             if result["checks_passed"] >= 4:
                 result["overall_conviction"] = "HIGH"
             elif result["checks_passed"] >= 3:
@@ -122,115 +146,141 @@ class AlphaHunterFlow:
         
         return result
     
-    def _analyze_retail_flow(self, ticker: str, days: int) -> Dict:
-        """Analyze retail broker net flow."""
-        # Use centralized broker classification
-        retail_brokers = get_retail_brokers()
-        
-        result = {
-            "passed": False,
-            "net_lot": 0,
-            "pct_sold": 0
+    def _prepare_broker_groups(self, ticker: str) -> Dict[str, List[str]]:
+        """Prepare smart money and retail broker groups with overrides."""
+        broker_five_repo = BrokerFiveRepository()
+        broker_five_rows = broker_five_repo.list_brokers(ticker)
+        broker_five = {item["broker_code"].upper() for item in broker_five_rows}
+
+        smart_overrides = get_stage3_smart_money_overrides()
+        retail_overrides = get_stage3_retail_overrides()
+
+        smart_money = set(smart_overrides) | broker_five
+        retail = set(retail_overrides)
+
+        if not smart_money:
+            smart_money.update(get_institutional_brokers())
+            smart_money.update(get_foreign_brokers())
+        if not retail:
+            retail.update(get_retail_brokers())
+
+        # Overrides win in case of overlaps.
+        smart_money -= retail_overrides
+        retail -= smart_overrides
+
+        smart_money.discard("")
+        retail.discard("")
+
+        return {
+            "smart_money": sorted(smart_money),
+            "retail": sorted(retail),
+            "broker_five": sorted(broker_five)
         }
-        
-        try:
-            # Get available dates
-            dates_data = self.db.get_available_dates_for_ticker(ticker)
-            if not dates_data or not dates_data.get('available_dates'):
-                return result
-            
-            available_dates = sorted(dates_data['available_dates'], reverse=True)
-            dates_to_check = available_dates[:min(days, len(available_dates))]
-            
-            total_retail_net = 0
-            
-            for date in dates_to_check:
-                summary = self.db.get_broker_summary(ticker, date)
-                if not summary:
-                    continue
-                    
-                buy_data = summary.get('buy', [])
-                sell_data = summary.get('sell', [])
-                
-                # Create lookup for buy/sell by broker
-                buy_by_broker = {b['broker']: b for b in buy_data}
-                sell_by_broker = {s['broker']: s for s in sell_data}
-                
-                for broker in retail_brokers:
-                    buy_lot = float(buy_by_broker.get(broker, {}).get('nlot', 0) or 0)
-                    sell_lot = float(sell_by_broker.get(broker, {}).get('nlot', 0) or 0)
-                    total_retail_net += (buy_lot - sell_lot)
-            
-            result["net_lot"] = int(total_retail_net)
-            
-            # Retail capitulation = net sell (negative net)
-            if total_retail_net < 0:
-                result["passed"] = True
-                
-        except Exception as e:
-            print(f"[!] Error analyzing retail flow: {e}")
-            
-        return result
-    
-    def _detect_imposters(self, ticker: str, days: int) -> Dict:
-        """Detect potential imposters (retail brokers with institutional behavior)."""
-        # Use centralized broker classification
-        suspect_brokers = get_imposter_suspects()
-        
-        result = {
-            "passed": False,
-            "suspects": []
+
+    def _aggregate_group_flow(
+        self,
+        ticker: str,
+        days: int,
+        smart_brokers: Set[str],
+        retail_brokers: Set[str]
+    ) -> Optional[Dict]:
+        """Aggregate net flow for broker groups across recent dates."""
+        available_dates = self.db.get_available_dates_for_ticker(ticker)
+        if not available_dates:
+            return None
+
+        dates_to_check = sorted(available_dates, reverse=True)[:min(days, len(available_dates))]
+        if not dates_to_check:
+            return None
+
+        smart_net_lot = 0.0
+        smart_net_value = 0.0
+        retail_net_lot = 0.0
+        retail_net_value = 0.0
+        smart_days_buy = 0
+        retail_days_sell = 0
+        days_checked = 0
+        smart_broker_net = {}
+
+        for date in dates_to_check:
+            summary = self.db.get_broker_summary(ticker, date)
+            if not summary:
+                continue
+
+            net_by_broker = {}
+            for item in summary.get('buy', []):
+                broker = (item.get('broker') or '').upper()
+                lot = float(item.get('nlot', 0) or 0)
+                value = float(item.get('nval', 0) or 0)
+                net_by_broker.setdefault(broker, {"net_lot": 0.0, "net_value": 0.0})
+                net_by_broker[broker]["net_lot"] += lot
+                net_by_broker[broker]["net_value"] += value
+
+            for item in summary.get('sell', []):
+                broker = (item.get('broker') or '').upper()
+                lot = float(item.get('nlot', 0) or 0)
+                value = float(item.get('nval', 0) or 0)
+                net_by_broker.setdefault(broker, {"net_lot": 0.0, "net_value": 0.0})
+                net_by_broker[broker]["net_lot"] -= lot
+                net_by_broker[broker]["net_value"] -= value
+
+            if not net_by_broker:
+                continue
+
+            days_checked += 1
+            smart_day_lot = 0.0
+            smart_day_value = 0.0
+            retail_day_lot = 0.0
+            retail_day_value = 0.0
+
+            for broker, net in net_by_broker.items():
+                if broker in smart_brokers:
+                    smart_day_lot += net["net_lot"]
+                    smart_day_value += net["net_value"]
+                    smart_broker_net.setdefault(broker, {"net_lot": 0.0, "net_value": 0.0})
+                    smart_broker_net[broker]["net_lot"] += net["net_lot"]
+                    smart_broker_net[broker]["net_value"] += net["net_value"]
+                if broker in retail_brokers:
+                    retail_day_lot += net["net_lot"]
+                    retail_day_value += net["net_value"]
+
+            smart_net_lot += smart_day_lot
+            smart_net_value += smart_day_value
+            retail_net_lot += retail_day_lot
+            retail_net_value += retail_day_value
+
+            if smart_day_lot > 0:
+                smart_days_buy += 1
+            if retail_day_lot < 0:
+                retail_days_sell += 1
+
+        if days_checked == 0:
+            return None
+
+        denom = abs(smart_net_value) + abs(retail_net_value)
+        dominance_pct = round((abs(smart_net_value) / denom) * 100, 1) if denom > 0 else 0
+        consistency_threshold = max(1, math.ceil(days_checked * 0.5))
+
+        top_brokers = [
+            {
+                "code": broker,
+                "net_lot": int(net["net_lot"]),
+                "net_value": round(net["net_value"], 2)
+            }
+            for broker, net in smart_broker_net.items()
+            if net["net_lot"] > 0
+        ]
+        top_brokers.sort(key=lambda x: x["net_lot"], reverse=True)
+
+        return {
+            "smart_net_lot": int(smart_net_lot),
+            "smart_net_value": round(smart_net_value, 2),
+            "retail_net_lot": int(retail_net_lot),
+            "retail_net_value": round(retail_net_value, 2),
+            "smart_days_buy": smart_days_buy,
+            "retail_days_sell": retail_days_sell,
+            "days_checked": days_checked,
+            "dominance_pct": dominance_pct,
+            "consistency_threshold": consistency_threshold,
+            "smart_top_brokers": top_brokers[:5]
         }
-        
-        try:
-            dates_data = self.db.get_available_dates_for_ticker(ticker)
-            if not dates_data or not dates_data.get('available_dates'):
-                return result
-            
-            available_dates = sorted(dates_data['available_dates'], reverse=True)
-            dates_to_check = available_dates[:min(days, len(available_dates))]
-            
-            broker_activity = {}
-            
-            for date in dates_to_check:
-                summary = self.db.get_broker_summary(ticker, date)
-                if not summary:
-                    continue
-                    
-                buy_data = summary.get('buy', [])
-                
-                for item in buy_data:
-                    broker = item.get('broker', '')
-                    if broker in suspect_brokers:
-                        lot = float(item.get('nlot', 0) or 0)
-                        value = float(item.get('nval', 0) or 0)
-                        
-                        if broker not in broker_activity:
-                            broker_activity[broker] = {"total_lot": 0, "total_value": 0, "days": 0}
-                        
-                        broker_activity[broker]["total_lot"] += lot
-                        broker_activity[broker]["total_value"] += value
-                        broker_activity[broker]["days"] += 1
-            
-            # Identify imposters: retail brokers with unusually large positions
-            for broker, data in broker_activity.items():
-                # Threshold: > 1000 lot accumulation = suspicious
-                if data["total_lot"] > 1000:
-                    result["suspects"].append({
-                        "broker": broker,
-                        "total_lot": int(data["total_lot"]),
-                        "total_value": round(data["total_value"], 2),
-                        "days_active": data["days"]
-                    })
-            
-            # Sort by lot size
-            result["suspects"].sort(key=lambda x: x["total_lot"], reverse=True)
-            
-            # Pass if we found any imposters (this is a positive signal!)
-            if len(result["suspects"]) > 0:
-                result["passed"] = True
-                
-        except Exception as e:
-            print(f"[!] Error detecting imposters: {e}")
-            
-        return result

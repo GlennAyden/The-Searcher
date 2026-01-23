@@ -11,6 +11,14 @@ from functools import lru_cache
 # Path to broker data file
 BROKER_DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'brokers_idx.json')
 
+# Stage 3 overrides (Alpha Hunter Smart Money Flow)
+STAGE3_SMART_MONEY_OVERRIDES = {
+    "MG", "BB", "RX", "AK", "BK", "CC", "SS"
+}
+STAGE3_RETAIL_OVERRIDES = {
+    "YP", "XL", "PD", "XC"
+}
+
 
 @lru_cache(maxsize=1)
 def _load_broker_data() -> Dict:
@@ -93,6 +101,18 @@ def get_mixed_brokers() -> Set[str]:
         if "retail" in categories and "institutional" in categories:
             mixed.add(broker.get("code"))
     return mixed
+
+
+@lru_cache(maxsize=1)
+def get_stage3_smart_money_overrides() -> Set[str]:
+    """Get Stage 3 smart money broker overrides."""
+    return set(STAGE3_SMART_MONEY_OVERRIDES)
+
+
+@lru_cache(maxsize=1)
+def get_stage3_retail_overrides() -> Set[str]:
+    """Get Stage 3 retail broker overrides."""
+    return set(STAGE3_RETAIL_OVERRIDES)
 
 
 def classify_broker(broker_code: str) -> str:

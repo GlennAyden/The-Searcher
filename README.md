@@ -161,7 +161,7 @@ Key endpoints:
 Stages overview:
 - Stage 1: NeoBDM flow-based signal scan and candidate selection.
 - Stage 2: VPA validation using price-volume engine (spike, compression, pullback health).
-- Stage 3: Smart money flow checks from broker summary + floor price context.
+- Stage 3: Smart vs retail net-flow checks with dominance/consistency and floor price safety (broker summary + broker 5% list).
 - Stage 4: Supply analysis using Done Detail data.
 
 ### 9) Done Detail

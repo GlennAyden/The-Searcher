@@ -4,25 +4,31 @@ import React, { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, XCircle, AlertCircle, RefreshCw, TrendingUp, Users, Ghost, Shield } from "lucide-react";
+import { CheckCircle2, XCircle, AlertCircle, RefreshCw, TrendingUp, Users, Shield, ArrowRightLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface FlowData {
     ticker: string;
-    institutional_accumulation: {
+    smart_money_accumulation: {
         passed: boolean;
         net_lot: number;
         net_value: number;
-        top_brokers: { code: string; lot: number; avg_price: number }[];
+        active_days: number;
+        total_days: number;
+        top_brokers: { code: string; net_lot: number; net_value: number }[];
     };
     retail_capitulation: {
         passed: boolean;
         net_lot: number;
-        pct_sold: number;
+        net_value: number;
+        active_days: number;
+        total_days: number;
     };
-    imposter_detected: {
+    smart_vs_retail: {
         passed: boolean;
-        suspects: { broker: string; total_lot: number; total_value: number; days_active: number }[];
+        dominance_pct: number;
+        smart_net_lot: number;
+        retail_net_lot: number;
     };
     floor_price_safe: {
         passed: boolean;
@@ -34,6 +40,11 @@ interface FlowData {
     checks_passed: number;
     total_checks: number;
     data_available: boolean;
+    broker_groups: {
+        smart_money: string[];
+        retail: string[];
+        broker_five: string[];
+    };
 }
 
 interface SmartMoneyFlowPanelProps {
@@ -142,6 +153,12 @@ export default function SmartMoneyFlowPanel({ ticker, onStageComplete }: SmartMo
         return "text-red-400 bg-red-950/30 border-red-500/50";
     };
 
+    const formatBrokerList = (codes: string[], limit = 8) => {
+        if (!codes.length) return "None";
+        if (codes.length <= limit) return codes.join(", ");
+        return `${codes.slice(0, limit).join(", ")} +${codes.length - limit}`;
+    };
+
     const CheckItem = ({
         passed,
         title,
@@ -187,7 +204,14 @@ export default function SmartMoneyFlowPanel({ ticker, onStageComplete }: SmartMo
             <div className="flex items-center justify-between">
                 <div>
                     <h3 className="text-xl font-bold text-slate-100">Stage 3: Smart Money Flow</h3>
-                    <p className="text-slate-400 text-sm">Validating institutional activity and floor price safety.</p>
+                    <p className="text-slate-400 text-sm">Validating smart money vs retail flow and floor price safety.</p>
+                    <div className="text-[10px] text-slate-500 mt-1 space-y-0.5">
+                        <div>Smart: {formatBrokerList(data.broker_groups.smart_money)}</div>
+                        <div>Retail: {formatBrokerList(data.broker_groups.retail)}</div>
+                        {data.broker_groups.broker_five.length > 0 && (
+                            <div>Broker 5%: {formatBrokerList(data.broker_groups.broker_five, 6)}</div>
+                        )}
+                    </div>
                 </div>
                 <div className="flex items-center gap-3">
                     <Badge className={cn("text-lg px-4 py-2 font-black", getConvictionColor(data.overall_conviction))}>
@@ -203,30 +227,30 @@ export default function SmartMoneyFlowPanel({ ticker, onStageComplete }: SmartMo
             {/* Validation Checklist Grid */}
             <div className="grid grid-cols-2 gap-4">
                 <CheckItem
-                    passed={data.institutional_accumulation.passed}
-                    title="Institutional Accumulation"
+                    passed={data.smart_money_accumulation.passed}
+                    title="Smart Money Accumulation"
                     icon={Users}
-                    detail={data.institutional_accumulation.passed
-                        ? `+${data.institutional_accumulation.net_lot.toLocaleString()} lot accumulated`
-                        : "No significant institutional buying"
+                    detail={data.smart_money_accumulation.total_days > 0
+                        ? `Net ${data.smart_money_accumulation.net_lot.toLocaleString()} lot in ${data.smart_money_accumulation.active_days}/${data.smart_money_accumulation.total_days} days`
+                        : "No smart money flow data"
                     }
                 />
                 <CheckItem
                     passed={data.retail_capitulation.passed}
                     title="Retail Capitulation"
                     icon={TrendingUp}
-                    detail={data.retail_capitulation.passed
-                        ? `${Math.abs(data.retail_capitulation.net_lot).toLocaleString()} lot sold by retail`
-                        : "Retail still holding"
+                    detail={data.retail_capitulation.total_days > 0
+                        ? `Net ${data.retail_capitulation.net_lot.toLocaleString()} lot in ${data.retail_capitulation.active_days}/${data.retail_capitulation.total_days} days`
+                        : "No retail flow data"
                     }
                 />
                 <CheckItem
-                    passed={data.imposter_detected.passed}
-                    title="Imposter Detected"
-                    icon={Ghost}
-                    detail={data.imposter_detected.passed
-                        ? `${data.imposter_detected.suspects.length} suspicious broker(s) found`
-                        : "No imposter activity"
+                    passed={data.smart_vs_retail.passed}
+                    title="Smart vs Retail Dominance"
+                    icon={ArrowRightLeft}
+                    detail={data.smart_vs_retail.dominance_pct > 0
+                        ? `Dominance ${data.smart_vs_retail.dominance_pct}% (smart ${data.smart_vs_retail.smart_net_lot.toLocaleString()} vs retail ${data.smart_vs_retail.retail_net_lot.toLocaleString()} lot)`
+                        : "Dominance not established"
                     }
                 />
                 <CheckItem
@@ -271,34 +295,15 @@ export default function SmartMoneyFlowPanel({ ticker, onStageComplete }: SmartMo
             )}
 
             {/* Top Institutional Buyers */}
-            {data.institutional_accumulation.top_brokers.length > 0 && (
+            {data.smart_money_accumulation.top_brokers.length > 0 && (
                 <Card className="bg-slate-900/50 border-slate-800">
                     <CardContent className="pt-6">
-                        <h4 className="text-sm font-bold text-slate-400 uppercase mb-4">Top Institutional Buyers</h4>
+                        <h4 className="text-sm font-bold text-slate-400 uppercase mb-4">Top Smart Money Net Buyers</h4>
                         <div className="flex flex-wrap gap-2">
-                            {data.institutional_accumulation.top_brokers.map((b, i) => (
+                            {data.smart_money_accumulation.top_brokers.map((b) => (
                                 <div key={b.code} className="bg-blue-950/30 border border-blue-500/30 rounded-lg px-4 py-2">
                                     <div className="font-bold text-blue-400">{b.code}</div>
-                                    <div className="text-xs text-slate-500">{b.lot.toLocaleString()} lot @ Rp {b.avg_price.toLocaleString()}</div>
-                                </div>
-                            ))}
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
-
-            {/* Imposter Suspects */}
-            {data.imposter_detected.suspects.length > 0 && (
-                <Card className="bg-slate-900/50 border-purple-500/30">
-                    <CardContent className="pt-6">
-                        <h4 className="text-sm font-bold text-purple-400 uppercase mb-4 flex items-center gap-2">
-                            <Ghost className="w-4 h-4" /> Imposter Suspects
-                        </h4>
-                        <div className="flex flex-wrap gap-2">
-                            {data.imposter_detected.suspects.map((s) => (
-                                <div key={s.broker} className="bg-purple-950/30 border border-purple-500/30 rounded-lg px-4 py-2">
-                                    <div className="font-bold text-purple-400">{s.broker}</div>
-                                    <div className="text-xs text-slate-500">{s.total_lot.toLocaleString()} lot in {s.days_active} days</div>
+                                    <div className="text-xs text-slate-500">{b.net_lot.toLocaleString()} lot net ({b.net_value.toLocaleString()}B)</div>
                                 </div>
                             ))}
                         </div>
@@ -314,6 +319,12 @@ export default function SmartMoneyFlowPanel({ ticker, onStageComplete }: SmartMo
                     </Button>
                     <Button variant="outline" size="sm" onClick={handleScrape} disabled={isScraping}>
                         {isScraping ? "Scraping..." : "Re-scrape Data"}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => window.open("/broker-summary", "_blank")}>
+                        Broker Summary
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => window.open("/neobdm-tracker", "_blank")}>
+                        Flow Tracker
                     </Button>
                 </div>
                 {scrapeStatus && (
