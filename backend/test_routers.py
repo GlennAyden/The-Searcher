@@ -3,7 +3,7 @@ import sys
 
 try:
     print("Testing router imports...")
-    from routes import dashboard, news, disclosures, scrapers, neobdm, running_trade
+    from routes import dashboard, news, disclosures, scrapers, neobdm
     print("✓ All router modules imported successfully!")
     
     print("\nTesting main.py import...")
@@ -11,7 +11,7 @@ try:
     print("✓ Main application imported successfully!")
     
     print("\n✅ Backend refactoring verification PASSED!")
-    print(f"   - All 6 routers working")
+    print(f"   - All 5 routers working")
     print(f"   - Main.py reduced from 1101 lines to ~80 lines")
     sys.exit(0)
     

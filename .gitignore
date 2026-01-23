@@ -8,6 +8,7 @@ backend/downloads/
 backend/chroma_db/
 backend/.env
 backend/.env*
+backend/stockbit_storage.json
 
 # Frontend
 frontend/node_modules/

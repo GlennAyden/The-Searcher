@@ -23,7 +23,6 @@ from .connection import BaseRepository, DatabaseConnection
 from .news_repository import NewsRepository
 from .disclosure_repository import DisclosureRepository
 from .neobdm_repository import NeoBDMRepository
-from .running_trade_repository import RunningTradeRepository
 from .broker_five_repository import BrokerFiveRepository
 from .done_detail_repository import DoneDetailRepository
 
@@ -33,7 +32,6 @@ __all__ = [
     "NewsRepository",
     "DisclosureRepository",
     "NeoBDMRepository",
-    "RunningTradeRepository",
     "BrokerFiveRepository",
     "DoneDetailRepository"
 ]

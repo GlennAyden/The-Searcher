@@ -6,7 +6,6 @@ A comprehensive market intelligence system for Indonesian stock market analysis,
 - Real-time sentiment analysis from multiple news sources
 - Market maker & fund flow tracking (NeoBDM integration)
 - IDX disclosures with AI-powered RAG chat
-- Real-time running trade monitoring
 - Automated data collection pipelines
 
 **Version**: 2.0.0 (Refactored)  
@@ -26,14 +25,12 @@ backend/
 │   ├── news.py               # News aggregation & AI insights
 │   ├── disclosures.py        # IDX disclosures & RAG chat
 │   ├── neobdm.py             # Market maker analysis
-│   ├── running_trade.py      # Real-time trade monitoring
 │   └── scrapers.py           # Data collection triggers
 ├── db/                        # Database repositories (5 repos)
 │   ├── connection.py         # Base connection & schema
 │   ├── news_repository.py
 │   ├── disclosure_repository.py
 │   ├── neobdm_repository.py
-│   └── running_trade_repository.py
 └── modules/
     └── database.py           # Backward-compatible wrapper
 ```
@@ -255,13 +252,8 @@ import { Loading, ErrorDisplay, Card } from '@/components/shared';
 - AI summary previews
 - Contextual memory
 
-### 6. Running Trade Monitor
-- **Live Tape**: Real-time trade stream
-- **RT History**: Interval snapshots with big order detection
-- Power Meter (Buy vs. Sell)
-- Net Volume Chart
 
-### 7. Scraper Engine
+### 6. Scraper Engine
 - One-click data collection
 - Multi-source support
 - Historical backfill
@@ -284,7 +276,7 @@ npm test
 ```
 
 ### Manual Verification
-All 8 features have been verified post-refactoring. See `walkthrough.md` for details.
+All 7 features have been verified post-refactoring. See `walkthrough.md` for details.
 
 ---
 

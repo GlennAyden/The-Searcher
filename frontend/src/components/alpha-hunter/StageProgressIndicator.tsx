@@ -11,7 +11,7 @@ interface StageProgressProps {
 export default function StageProgressIndicator({ ticker, currentStage = 2 }: StageProgressProps) {
     const stages = [
         { id: 1, label: "Volume Anomaly", icon: "🌋" },
-        { id: 2, label: "Healthy Pullback", icon: "💓" },
+        { id: 2, label: "VPA Validation", icon: "💓" },
         { id: 3, label: "Smart Flow", icon: "🧠" },
         { id: 4, label: "Supply Analysis", icon: "📦" },
     ];

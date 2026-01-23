@@ -103,6 +103,32 @@ class AlphaHunterRepository(BaseRepository):
             return []
         finally:
             conn.close()
+
+    def get_watchlist_item(self, ticker: str) -> Optional[Dict]:
+        """Get a single watchlist item by ticker."""
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute("""
+            SELECT ticker, spike_date, initial_score, current_stage, detect_info, added_at
+            FROM alpha_hunter_watchlist
+            WHERE ticker = ?
+            """, (ticker.upper(),))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                "ticker": row[0],
+                "spike_date": row[1],
+                "initial_score": row[2],
+                "current_stage": row[3],
+                "detect_info": json.loads(row[4]) if row[4] else {},
+                "added_at": row[5]
+            }
+        except Exception as e:
+            print(f"[!] Error getting watchlist item: {e}")
+            return None
+        finally:
+            conn.close()
             
     def update_stage(self, ticker: str, stage: int) -> bool:
         """Update investigation stage."""

@@ -32,7 +32,7 @@ from routes.alpha_hunter import router as alpha_hunter_router
 # Create FastAPI app
 app = FastAPI(
     title="Financial Sentiment Analysis & Market Intelligence API",
-    description="Comprehensive market intelligence system with sentiment analysis, flow tracking, and real-time trade monitoring",
+    description="Comprehensive market intelligence system with sentiment analysis and flow tracking",
     version="2.0.0"
 )
 

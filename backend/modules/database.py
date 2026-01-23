@@ -8,9 +8,6 @@ from db.connection import DatabaseConnection
 from db.news_repository import NewsRepository
 from db.disclosure_repository import DisclosureRepository
 from db.neobdm_repository import NeoBDMRepository
-from db.running_trade_repository import RunningTradeRepository
-from db.neobdm_repository import NeoBDMRepository
-from db.running_trade_repository import RunningTradeRepository
 from db.market_metadata_repository import MarketMetadataRepository
 from db.alpha_hunter_repository import AlphaHunterRepository
 from typing import Optional
@@ -34,8 +31,6 @@ class DatabaseManager:
         self.news_repo = NewsRepository(db_path)
         self.disclosure_repo = DisclosureRepository(db_path)
         self.neobdm_repo = NeoBDMRepository(db_path)
-        self.rt_repo = RunningTradeRepository(db_path)
-        self.rt_repo = RunningTradeRepository(db_path)
         self.market_meta_repo = MarketMetadataRepository(db_path)
         self.alpha_hunter_repo = AlphaHunterRepository(db_path)
     
@@ -105,25 +100,6 @@ class DatabaseManager:
     
     def get_floor_price_analysis(self, ticker, days=30):
         return self.neobdm_repo.get_floor_price_analysis(ticker, days)
-    
-    # Running Trade operations - delegate to RunningTradeRepository
-    def save_rt_snapshot(self, data):
-        return self.rt_repo.save_rt_snapshot(data)
-    
-    def get_rt_history(self, ticker, days=1):
-        return self.rt_repo.get_rt_history(ticker, days)
-    
-    def save_raw_trades(self, ticker, date_str, trades):
-        return self.rt_repo.save_raw_trades(ticker, date_str, trades)
-    
-    def get_raw_trades(self, ticker, date_str):
-        return self.rt_repo.get_raw_trades(ticker, date_str)
-    
-    def get_raw_history_inventory(self):
-        return self.rt_repo.get_raw_history_inventory()
-    
-    def delete_raw_trades(self, ticker, date_str):
-        return self.rt_repo.delete_raw_trades(ticker, date_str)
     
     # Market Metadata operations - delegate to MarketMetadataRepository
     def get_market_cap(self, symbol: str, ttl_hours: int = 24):

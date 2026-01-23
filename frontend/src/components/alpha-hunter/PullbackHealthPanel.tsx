@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ComposedChart, Bar, CartesianGrid, Legend } from 'recharts';
+import { Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ComposedChart, Bar, CartesianGrid, Legend } from 'recharts';
 
 interface PullbackHealthPanelProps {
     ticker: string;
@@ -19,16 +19,63 @@ interface TrackingLog {
     status: string;
 }
 
-interface HealthData {
-    ticker: string;
-    health_score: number;
-    verdict: string;
+interface SpikeData {
+    requested_date: string;
+    date: string;
+    source: string;
+    price_change_pct: number;
+    volume_ratio: number | null;
+    volume_category: string;
+    volume_change_pct: number;
+    trend_status: string;
+}
+
+interface CompressionData {
+    is_sideways: boolean;
+    compression_score: number;
+    sideways_days: number;
+    volatility_pct: number;
+    price_range_pct: number;
+    avg_close: number;
+}
+
+interface FlowImpactData {
+    flow_impact_pct: number;
+    value_traded: number;
+    market_cap: number;
+    flow_score: number;
+    has_market_cap: boolean;
+}
+
+interface ScoreData {
+    volume_score: number;
+    compression_score: number;
+    flow_score: number;
+    anomaly_score: number;
+    signal_level: string;
+    pullback_health_score: number;
+    stage2_score: number;
+}
+
+interface PullbackData {
     days_tracked: number;
+    distribution_days: number;
+    healthy_days: number;
     log: TrackingLog[];
 }
 
+interface Stage2Data {
+    ticker: string;
+    spike: SpikeData;
+    compression: CompressionData;
+    flow_impact: FlowImpactData;
+    scores: ScoreData;
+    pullback: PullbackData;
+    verdict: string;
+}
+
 export default function PullbackHealthPanel({ ticker }: PullbackHealthPanelProps) {
-    const [data, setData] = useState<HealthData | null>(null);
+    const [data, setData] = useState<Stage2Data | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
@@ -38,8 +85,13 @@ export default function PullbackHealthPanel({ ticker }: PullbackHealthPanelProps
     const fetchData = async () => {
         setIsLoading(true);
         try {
-            const res = await fetch(`http://localhost:8000/api/alpha-hunter/health/${ticker}`);
+            const res = await fetch(`http://localhost:8000/api/alpha-hunter/stage2/vpa/${ticker}`);
             const json = await res.json();
+            if (!res.ok) {
+                console.error(json.detail || "Failed to fetch stage 2 data");
+                setData(null);
+                return;
+            }
             if (!json.error) setData(json);
         } catch (err) {
             console.error(err);
@@ -48,8 +100,8 @@ export default function PullbackHealthPanel({ ticker }: PullbackHealthPanelProps
         }
     };
 
-    if (isLoading) return <div className="p-10 text-center animate-pulse text-slate-500">Analyzing Pullback Health...</div>;
-    if (!data) return <div className="p-10 text-center text-slate-500">No tracking data available.</div>;
+    if (isLoading) return <div className="p-10 text-center animate-pulse text-slate-500">Analyzing Stage 2 VPA...</div>;
+    if (!data) return <div className="p-10 text-center text-slate-500">No stage 2 data available.</div>;
 
     const getScoreColor = (score: number) => {
         if (score >= 80) return "text-emerald-400 bg-emerald-950/20 border-emerald-500/50";
@@ -62,13 +114,13 @@ export default function PullbackHealthPanel({ ticker }: PullbackHealthPanelProps
             {/* Left Col: Verdict Card */}
             <Card className="col-span-1 bg-slate-900 border-slate-800 h-full">
                 <CardContent className="pt-6 flex flex-col items-center justify-center h-full text-center">
-                    <div className="text-sm text-slate-400 uppercase tracking-wider mb-2">Health Score</div>
-                    <div className={`text-6xl font-black mb-2 px-6 py-2 rounded-xl border-2 ${getScoreColor(data.health_score)}`}>
-                        {data.health_score}
+                    <div className="text-sm text-slate-400 uppercase tracking-wider mb-2">Stage 2 Score</div>
+                    <div className={`text-6xl font-black mb-2 px-6 py-2 rounded-xl border-2 ${getScoreColor(data.scores.stage2_score)}`}>
+                        {data.scores.stage2_score}
                     </div>
                     <div className="text-xl font-bold text-slate-100">{data.verdict}</div>
                     <p className="text-sm text-slate-500 mt-2 px-4">
-                        Based on {data.days_tracked} days tracking since spike.
+                        Based on {data.pullback.days_tracked} days tracking since spike.
                     </p>
 
                     <div className="w-full mt-6 px-4">
@@ -78,11 +130,34 @@ export default function PullbackHealthPanel({ ticker }: PullbackHealthPanelProps
                         </div>
                         <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
                             <div
-                                className={`h-full transition-all duration-1000 ${data.health_score >= 80 ? 'bg-emerald-500' :
-                                        data.health_score >= 50 ? 'bg-amber-500' : 'bg-red-500'
+                                className={`h-full transition-all duration-1000 ${data.scores.stage2_score >= 80 ? 'bg-emerald-500' :
+                                        data.scores.stage2_score >= 50 ? 'bg-amber-500' : 'bg-red-500'
                                     }`}
-                                style={{ width: `${data.health_score}%` }}
+                                style={{ width: `${data.scores.stage2_score}%` }}
                             />
+                        </div>
+                    </div>
+
+                    <div className="w-full mt-6 text-left text-xs text-slate-400 space-y-2 px-4">
+                        <div className="flex justify-between">
+                            <span>Volume Ratio</span>
+                            <span className="text-slate-200">
+                                {data.spike.volume_ratio !== null ? `${data.spike.volume_ratio}x` : "n/a"}
+                            </span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>Compression Score</span>
+                            <span className="text-slate-200">{data.scores.compression_score}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>Flow Impact</span>
+                            <span className="text-slate-200">
+                                {data.flow_impact.flow_impact_pct}% ({data.scores.flow_score})
+                            </span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>Pullback Score</span>
+                            <span className="text-slate-200">{data.scores.pullback_health_score}</span>
                         </div>
                     </div>
                 </CardContent>
@@ -95,7 +170,7 @@ export default function PullbackHealthPanel({ ticker }: PullbackHealthPanelProps
                 <Card className="bg-slate-900 border-slate-800 p-4 h-[300px]">
                     <h4 className="text-slate-400 text-xs uppercase mb-4 font-bold tracking-wider">Price vs Volume Correlation</h4>
                     <ResponsiveContainer width="100%" height="90%">
-                        <ComposedChart data={data.log}>
+                        <ComposedChart data={data.pullback.log}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                             <XAxis dataKey="date" stroke="#64748b" fontSize={10} tickFormatter={(v) => v.substring(5)} />
                             <YAxis yAxisId="left" stroke="#94a3b8" fontSize={10} domain={['auto', 'auto']} />
@@ -122,7 +197,7 @@ export default function PullbackHealthPanel({ ticker }: PullbackHealthPanelProps
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {[...data.log].reverse().slice(0, 5).map((row, i) => (
+                            {[...data.pullback.log].reverse().slice(0, 5).map((row, i) => (
                                 <TableRow key={i} className="border-slate-800 hover:bg-slate-900/50">
                                     <TableCell className="text-xs text-slate-300 py-2">{row.date}</TableCell>
                                     <TableCell className="text-xs py-2">

@@ -320,24 +320,7 @@ export const neobdmApi = {
         return await response.json();
     },
 
-    /**
-     * Trigger auto-scrape for missing data
-     */
-    triggerAutoScrape: async (tickers: string[] | null, daysBack: number = 30): Promise<{ status: string, processed: string[], count: number }> => {
-        const response = await fetch(`${API_BASE_URL}/api/done-detail/auto-scrape`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ tickers, days_back: daysBack })
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || 'Failed to trigger auto-scrape');
-        }
-        return await response.json();
-    }
+    
 };
 
 export interface FloorPriceBroker {

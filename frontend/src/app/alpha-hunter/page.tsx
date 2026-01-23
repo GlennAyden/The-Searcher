@@ -114,10 +114,10 @@ export default function AlphaHunterPage() {
                                 </CardContent>
                             </Card>
 
-                            {/* Stage 2: Healthy Pullback (Health Panel) */}
+                            {/* Stage 2: Volume Price Analysis (VPA) */}
                             <div className="space-y-2">
-                                <h3 className="text-xl font-bold text-slate-100">Stage 2: Healthy Pullback Check</h3>
-                                <p className="text-slate-400 text-sm mb-4">Validating post-spike behavior. Volume should decrease when price drops.</p>
+                                <h3 className="text-xl font-bold text-slate-100">Stage 2: Volume Price Analysis</h3>
+                                <p className="text-slate-400 text-sm mb-4">Validating volume spike, sideways compression, and pullback health.</p>
                                 <PullbackHealthPanel ticker={selectedTicker} />
                             </div>
 

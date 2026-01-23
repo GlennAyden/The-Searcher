@@ -16,7 +16,6 @@ backend/
 │   ├── disclosures.py
 │   ├── scrapers.py
 │   ├── neobdm.py
-│   └── running_trade.py
 │
 ├── db/                        # Database repositories
 │   ├── __init__.py
@@ -24,7 +23,6 @@ backend/
 │   ├── news_repository.py
 │   ├── disclosure_repository.py
 │   ├── neobdm_repository.py
-│   └── running_trade_repository.py
 │
 ├── modules/                   # Business logic & utilities
 │   ├── database.py           # Backward-compatible wrapper
@@ -42,13 +40,10 @@ backend/
 │   └── ...
 │
 ├── debug/                     # Debug & verification scripts
-│   ├── debug_api_buva.py
-│   ├── verify_*.py
 │   ├── check_tickers.py
 │   └── error_date_picker.png
 │
 ├── scripts/                   # Utility scripts
-│   ├── clean_db.py
 │   ├── scrape_historical.py
 │   └── batch_*.py
 │

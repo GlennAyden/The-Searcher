@@ -9,22 +9,20 @@ Complete system refactoring to improve maintainability, scalability, and code qu
 
 #### Phase 1: Router Modularization
 - **Broke down `main.py`**: 1,101 lines → 79 lines (92% reduction)
-- **Created 6 domain routers**:
+- **Created 5 domain routers**:
   - `routes/dashboard.py` - Market statistics (171 lines)
   - `routes/news.py` - News & AI insights (290 lines)
   - `routes/disclosures.py` - IDX disclosures & RAG (156 lines)
   - `routes/scrapers.py` - Data collection (134 lines)
   - `routes/neobdm.py` - Market maker analysis (257 lines)
-  - `routes/running_trade.py` - RT monitoring (323 lines)
 
 #### Phase 2: Database Layer Refactoring
 - **Broke down `modules/database.py`**: 1,425 lines → 114 lines (92% reduction)
-- **Created 5 repositories**:
+- **Created 4 repositories**:
   - `db/connection.py` - Base class & schema (185 lines)
   - `db/news_repository.py` - News operations (171 lines)
   - `db/disclosure_repository.py` - Disclosure ops (113 lines)
   - `db/neobdm_repository.py` - NeoBDM ops (327 lines)
-  - `db/running_trade_repository.py` - RT ops (176 lines)
 - **Pattern**: Repository pattern with centralized schema management
 
 ### Frontend Changes
@@ -77,7 +75,7 @@ Complete system refactoring to improve maintainability, scalability, and code qu
 
 ### Verification Results
 
-All 8 features verified post-refactoring:
+All 7 features verified post-refactoring:
 - ✅ Dashboard
 - ✅ News Library
 - ✅ Market Summary

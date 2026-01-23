@@ -124,41 +124,6 @@ class DatabaseConnection:
                 method TEXT,
                 period TEXT,
                 data_json TEXT
-            );
-        """)
-        
-        # Running Trade Snapshots (15m intervals)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS rt_snapshots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ticker TEXT,
-                interval_start DATETIME,
-                interval_end DATETIME,
-                buy_vol INTEGER,
-                sell_vol INTEGER,
-                net_vol INTEGER,
-                avg_price REAL,
-                status TEXT,
-                big_order_count INTEGER,
-                conclusion TEXT
-            );
-        """)
-        
-        # Raw Running Trade History (Full Day)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS rt_raw_history (
-                id TEXT PRIMARY KEY,
-                ticker TEXT,
-                time TEXT,
-                action TEXT,
-                price REAL,
-                lot INTEGER,
-                buyer TEXT,
-                seller TEXT,
-                trade_number TEXT,
-                market_board TEXT,
-                scrape_date TEXT
-            );
         """)
 
         # NeoBDM Broker Summaries (Net Buy & Net Sell)

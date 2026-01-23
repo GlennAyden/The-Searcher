@@ -2,10 +2,9 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional
 from datetime import datetime, timedelta
-from typing import List, Dict
 import re
+import pandas as pd
 
 from db import DoneDetailRepository
 
@@ -466,114 +465,4 @@ async def get_scrape_status():
         
     return {"data": sorted(status_list, key=lambda x: x['ticker'])}
 
-
-class AutoScrapeRequest(BaseModel):
-    tickers: Optional[List[str]] = None
-    days_back: int = 30
-
-
-@router.post("/auto-scrape")
-async def trigger_auto_scrape(request: AutoScrapeRequest):
-    """
-    Trigger background task to scrape missing data. 
-    NOTE: In a production environment, this should be a proper Celery task.
-    Here we'll spawn a background asyncio task or just run it (careful with timeout).
-    For now, we will return a message that it started, but actual implementation 
-    requires a background worker or we just do it synchronously for a few tickers.
-    
-    Given the complexity, we will implement a synchronous loop for now but limit it.
-    """
-    import asyncio
-    from stockbit_client import StockbitClient
-    from data_provider import DataProvider
-    
-    # Identify tickers to scrape
-    tickers_to_process = request.tickers
-    if not tickers_to_process:
-        # If no tickers provided, use all available ones or a default list
-        # For safety, let's just default to what we have in DB + maybe some hardcoded favorites if empty
-        available = repo.get_available_tickers()
-        if not available:
-            tickers_to_process = ["BBCA", "BBRI", "BMRI", "BBNI"] # Defaults
-        else:
-            tickers_to_process = available
-            
-    results = []
-    
-    # Initialize client once
-    client = StockbitClient(headless=True)
-    await client.initialize()
-    
-    try:
-        dp = DataProvider()
-        
-        for ticker in tickers_to_process:
-            # Determine missing dates
-            # Simple logic: Check last 30 days, if not in DB, scrape it
-            # We need to respect weekends
-            
-            # Get existing dates for this ticker
-            existing_dates = repo.get_date_range(ticker).get("dates", [])
-            existing_set = set(existing_dates)
-            
-            # Generate expected dates (last N days)
-            today = datetime.now().date()
-            
-            processed_count = 0
-            
-            # Check last 'days_back' days
-            for i in range(request.days_back):
-                check_date = today - timedelta(days=i)
-                
-                # Skip weekends
-                if check_date.weekday() >= 5: # 5=Sat, 6=Sun
-                    continue
-                    
-                date_str = check_date.strftime("%Y-%m-%d")
-                
-                if date_str not in existing_set:
-                    # Missing! Scrape it
-                    print(f"[*] Auto-Scraping {ticker} for {date_str}...")
-                    
-                    try:
-                        scrape_result = await client.get_running_trade_history_full(ticker, date_str)
-                        
-                        if "error" in scrape_result:
-                            print(f"[!] Failed to scrape {ticker} on {date_str}: {scrape_result['error']}")
-                            continue
-                            
-                        trades = scrape_result.get("trades", [])
-                        if trades:
-                            # Save raw
-                            saved = repo.save_records(ticker, date_str, trades)
-                            
-                            # Trigger synthesis
-                            if saved > 0:
-                                # We can reuse the logic from save_data but we need to call repo direct methods
-                                # 1. Imposter
-                                imposter_data = repo.detect_imposter_trades(ticker, date_str, date_str)
-                                # 2. Speed
-                                speed_data = repo.analyze_speed(ticker, date_str, date_str)
-                                # 3. Combined
-                                combined_data = repo.get_combined_analysis(ticker, date_str, date_str)
-                                # 4. Save
-                                repo.save_synthesis(ticker, date_str, imposter_data, speed_data, combined_data, saved)
-                                
-                                processed_count += 1
-                                results.append(f"Scraped {ticker} on {date_str} ({saved} records)")
-                        else:
-                            print(f"[-] No trades for {ticker} on {date_str}")
-                            # Maybe mark as empty so we don't retry? (Future improvement)
-                            
-                    except Exception as e:
-                        print(f"[!] Error processing {ticker} {date_str}: {e}")
-            
-    finally:
-        await client.close()
-        
-    return {
-        "status": "completed", 
-        "processed": results,
-        "count": len(results)
-    }
 

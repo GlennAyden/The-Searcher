@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-**NEW APPROACH**: Stage 1 Alpha Hunter akan menggunakan **Market Summary Flow** dan **Flow Tracker Real-time Data** sebagai primary screening mechanism, menggantikan approach volume-based.
+**NEW APPROACH**: Stage 1 Alpha Hunter akan menggunakan **Market Summary Flow (NeoBDM)** sebagai primary screening mechanism, menggantikan approach volume-based.
 
 ---
 
@@ -277,81 +277,17 @@ async def alpha_hunter_stage1_scan(
 
 ---
 
-### Enhanced Scoring with Flow Tracker Integration
-
-**New Feature**: Real-time Order Flow Confirmation
-
-```python
-# File: backend/db/alpha_hunter_repository.py
-
-def enhance_signal_with_flow_tracker(signal: Dict) -> Dict:
-    """
-    Enhance NeoBDM signal with real-time Flow Tracker data.
-    
-    Adds:
-    - Current day buy/sell pressure
-    - Last 30-min order flow status
-    - Big order count (smart money activity)
-    """
-    from db.running_trade_repository import RunningTradeRepository
-    
-    rt_repo = RunningTradeRepository()
-    ticker = signal['symbol']
-    
-    # Get today's RT snapshots
-    today = datetime.now().strftime('%Y-%m-%d')
-    snapshots = rt_repo.get_snapshots_by_date(ticker, today)
-    
-    if not snapshots:
-        signal['rt_status'] = 'NO_DATA'
-        return signal
-    
-    # Analyze recent snapshots (last 3 intervals = 45 min)
-    recent = snapshots[-3:] if len(snapshots) >= 3 else snapshots
-    
-    # Calculate metrics
-    total_buy = sum(s['buy_vol'] for s in recent)
-    total_sell = sum(s['sell_vol'] for s in recent)
-    net_vol = total_buy - total_sell
-    big_orders = sum(s.get('big_order_count', 0) for s in recent)
-    
-    # Determine RT status
-    if net_vol > 0 and big_orders >= 5:
-        rt_status = 'STRONG_BUYING'
-        bonus_score = 15
-    elif net_vol > 0:
-        rt_status = 'ACCUMULATION'
-        bonus_score = 10
-    elif abs(net_vol) < total_buy * 0.1:
-        rt_status = 'NEUTRAL'
-        bonus_score = 0
-    else:
-        rt_status = 'DISTRIBUTION'
-        bonus_score = -15
-    
-    # Enhance signal
-    signal['rt_status'] = rt_status
-    signal['rt_net_vol'] = net_vol
-    signal['rt_big_orders'] = big_orders
-    signal['rt_bonus_score'] = bonus_score
-    signal['signal_score'] += bonus_score  # Add RT bonus to total
-    
-    return signal
-```
-
----
-
 ## 📊 Comparison: Old vs New Stage 1
 
 | Aspect | OLD (Volume-Based) | NEW (Flow-Based) |
 |--------|-------------------|------------------|
 | **Primary Signal** | Volume spike | Flow pattern |
 | **Detection Timing** | Often late (after spike) | Early (during accumulation) |
-| **Data Source** | Price/Volume only | NeoBDM + Flow Tracker |
+| **Data Source** | Price/Volume only | NeoBDM flow only |
 | **Pattern Recognition** | None | 6 key patterns |
 | **Smart Money Detection** | Indirect (flow impact) | Direct (flow analysis) |
 | **Multi-timeframe** | No | Yes (D+W+C) |
-| **Real-time Confirmation** | No | Yes (RT snapshots) |
+| **Real-time Confirmation** | No | No |
 | **Entry Quality** | Variable | High (sweet spot filtering) |
 
 ---
@@ -407,16 +343,6 @@ Total Score: 235 → VERY_STRONG
 - ✅ Consistent Accumulation (+40)
 - 🚀 Accelerating Build-up (+30)
 
-**Flow Tracker Enhancement**:
-```
-RT Status: STRONG_BUYING
-RT Net Vol: +3.5M (last 45 min)
-RT Big Orders: 8
-RT Bonus: +15
-
-Final Score: 250 → VERY_STRONG
-```
-
 **Recommendation**: 🔥 **HIGH CONVICTION BUY**
 
 ---
@@ -448,7 +374,6 @@ Final Score: 250 → VERY_STRONG
 ### Backend
 - [ ] Create `alpha_hunter.py` route file
 - [ ] Implement `/stage1/scan` endpoint with filters
-- [ ] Add Flow Tracker integration to hot signals
 - [ ] Add multi-method confluence bonus
 - [ ] Test with live data
 
@@ -476,7 +401,6 @@ Final Score: 250 → VERY_STRONG
 2. 🚀 **Accelerating Build-up**: Each day > previous day
 3. 📊 **Sideways + High Cumulative**: Price flat, flow building
 4. 💰 **Multi-Method Confluence**: MM + NonRetail + Foreign agree
-5. ⚡ **RT Confirmation**: Real-time buying pressure
 
 **RED FLAGS** (Avoid):
 1. ❌ **Distribution Pattern**: All daily flows negative

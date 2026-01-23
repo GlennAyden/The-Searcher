@@ -13,7 +13,6 @@ import {
     RefreshCcw,
     AlertCircle,
     CheckCircle2,
-    Layers,
     Plus,
     X,
     Database,
@@ -34,8 +33,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui/use-toast";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface ScrapeStatusData {
     ticker: string;
@@ -46,9 +43,6 @@ interface ScrapeStatusData {
 const ScrapeStatusModal = () => {
     const [statusData, setStatusData] = useState<ScrapeStatusData[]>([]);
     const [loading, setLoading] = useState(false);
-    const [autoScrapeLoading, setAutoScrapeLoading] = useState(false);
-    const [daysBack, setDaysBack] = useState("30");
-    const { toast } = useToast();
 
     const fetchStatus = async () => {
         setLoading(true);
@@ -59,27 +53,6 @@ const ScrapeStatusModal = () => {
             console.error(error);
         } finally {
             setLoading(false);
-        }
-    };
-
-    const handleAutoScrape = async () => {
-        setAutoScrapeLoading(true);
-        try {
-            const res = await api.triggerAutoScrape(null, parseInt(daysBack));
-            toast({
-                title: "Auto Scrape Started",
-                description: `Started processing ${res.count} items. Check logs for details.`,
-                variant: 'default'
-            });
-            fetchStatus(); // Refresh status
-        } catch (error: any) {
-            toast({
-                title: "Auto Scrape Failed",
-                description: error.message,
-                variant: "destructive"
-            });
-        } finally {
-            setAutoScrapeLoading(false);
         }
     };
 
@@ -116,34 +89,6 @@ const ScrapeStatusModal = () => {
                 </DialogHeader>
 
                 <div className="space-y-4">
-                    {/* Auto Scrape Controls */}
-                    <div className="flex items-center justify-between bg-zinc-900/50 p-3 rounded-lg border border-zinc-800">
-                        <div className="flex items-center gap-3">
-                            <span className="text-sm font-medium text-zinc-400">Auto-fill gaps for last:</span>
-                            <Select value={daysBack} onValueChange={setDaysBack}>
-                                <SelectTrigger className="w-[120px] h-8 bg-zinc-800 border-zinc-700">
-                                    <SelectValue placeholder="Days" />
-                                </SelectTrigger>
-                                <SelectContent className="bg-zinc-900 border-zinc-800">
-                                    <SelectItem value="7">7 Days</SelectItem>
-                                    <SelectItem value="30">30 Days</SelectItem>
-                                    <SelectItem value="60">60 Days</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <Button
-                            onClick={handleAutoScrape}
-                            disabled={autoScrapeLoading}
-                            className={cn(
-                                "bg-blue-600 hover:bg-blue-500 text-white",
-                                autoScrapeLoading && "opacity-50 cursor-not-allowed"
-                            )}
-                        >
-                            {autoScrapeLoading ? <RefreshCcw className="w-4 h-4 animate-spin mr-2" /> : <Layers className="w-4 h-4 mr-2" />}
-                            Start Auto Scrape
-                        </Button>
-                    </div>
-
                     {/* Status Table */}
                     <div className="border border-zinc-800 rounded-md bg-zinc-900/20">
                         <div className="grid grid-cols-4 bg-zinc-900/80 p-3 text-xs font-bold text-zinc-400 border-b border-zinc-800">

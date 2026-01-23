@@ -6,6 +6,7 @@ from typing import List, Optional
 from datetime import datetime
 from modules.alpha_hunter_scorer import AlphaHunterScorer
 from modules.alpha_hunter_health import AlphaHunterHealth
+from modules.alpha_hunter_vpa import AlphaHunterStage2VPA
 from modules.alpha_hunter_flow import AlphaHunterFlow
 from modules.alpha_hunter_supply import AlphaHunterSupply
 from modules.database import DatabaseManager
@@ -35,8 +36,7 @@ async def stage1_flow_scanner(
     pattern_filter: Optional[List[str]] = Query(
         None,
         description="Required patterns (at least one): CONSISTENT_ACCUMULATION, ACCELERATING_BUILDUP, TREND_REVERSAL, SIDEWAYS_ACCUMULATION"
-    ),
-    include_rt_status: bool = Query(False, description="Include real-time Flow Tracker status (slower)")
+    )
 ):
     """
     [ALPHA HUNTER STAGE 1] Flow-Based Screening using NeoBDM Hot Signals.
@@ -63,7 +63,6 @@ async def stage1_flow_scanner(
     Returns filtered high-conviction signals sorted by score.
     """
     from modules.database import DatabaseManager
-    from db.running_trade_repository import RunningTradeRepository
     
     db = DatabaseManager()
     
@@ -159,57 +158,6 @@ async def stage1_flow_scanner(
             
             filtered_signals.append(signal)
         
-        # Optional: Enhance with Flow Tracker real-time status
-        if include_rt_status:
-            rt_repo = RunningTradeRepository()
-            today = datetime.now().strftime('%Y-%m-%d')
-            
-            for signal in filtered_signals:
-                ticker = signal.get('symbol', '')
-                
-                try:
-                    # Get today's RT history
-                    rt_df = rt_repo.get_rt_history(ticker, days=1)
-                    
-                    if not rt_df.empty:
-                        # Analyze last few snapshots
-                        recent = rt_df.head(3)  # Most recent 3 intervals (45 min)
-                        
-                        if len(recent) > 0:
-                            total_buy = recent['buy_vol'].sum()
-                            total_sell = recent['sell_vol'].sum()
-                            net_vol = total_buy - total_sell
-                            big_orders = recent['big_order_count'].sum() if 'big_order_count' in recent.columns else 0
-                            
-                            # Determine RT status
-                            if net_vol > 0 and big_orders >= 5:
-                                rt_status = 'STRONG_BUYING'
-                                rt_bonus = 15
-                            elif net_vol > 0:
-                                rt_status = 'ACCUMULATION'
-                                rt_bonus = 10
-                            elif net_vol < 0 and abs(net_vol) > total_buy * 0.3:
-                                rt_status = 'DISTRIBUTION'
-                                rt_bonus = -15
-                            else:
-                                rt_status = 'NEUTRAL'
-                                rt_bonus = 0
-                            
-                            signal['rt_status'] = rt_status
-                            signal['rt_net_vol'] = int(net_vol)
-                            signal['rt_big_orders'] = int(big_orders)
-                            signal['rt_bonus'] = rt_bonus
-                            
-                            # Update score with RT bonus
-                            signal['signal_score'] = signal.get('signal_score', 0) + rt_bonus
-                        else:
-                            signal['rt_status'] = 'NO_RECENT_DATA'
-                    else:
-                        signal['rt_status'] = 'NO_DATA'
-                except Exception as rt_error:
-                    signal['rt_status'] = 'ERROR'
-                    signal['rt_error'] = str(rt_error)
-        
         # Sort by signal score descending
         filtered_signals.sort(key=lambda x: x.get('signal_score', 0), reverse=True)
         
@@ -243,8 +191,7 @@ async def stage1_flow_scanner(
                 "min_flow": min_flow,
                 "max_price_change": max_price_change,
                 "strength_filter": strength_filter,
-                "pattern_filter": pattern_filter,
-                "include_rt_status": include_rt_status
+                "pattern_filter": pattern_filter
             }
         }
         
@@ -261,6 +208,35 @@ async def get_pullback_health(
     try:
         result = tracker.check_pullback_health(ticker, spike_date)
         return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/stage2/vpa/{ticker}")
+async def get_stage2_vpa(
+    ticker: str,
+    lookback_days: int = Query(20, ge=10, le=60, description="Baseline days for median volume"),
+    pre_spike_days: int = Query(15, ge=5, le=40, description="Days to evaluate compression before spike"),
+    post_spike_days: int = Query(10, ge=3, le=30, description="Days to evaluate pullback after spike"),
+    min_ratio: float = Query(2.0, ge=1.5, le=10.0, description="Min volume/median ratio for auto spike detection"),
+    persist_tracking: bool = Query(False, description="Persist daily pullback snapshots to tracking table")
+):
+    """Stage 2 VPA analysis based on watchlist entry."""
+    analyzer = AlphaHunterStage2VPA()
+    try:
+        result = analyzer.analyze_watchlist(
+            ticker=ticker,
+            lookback_days=lookback_days,
+            pre_spike_days=pre_spike_days,
+            post_spike_days=post_spike_days,
+            min_ratio=min_ratio,
+            persist_tracking=persist_tracking
+        )
+        if result.get("error"):
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

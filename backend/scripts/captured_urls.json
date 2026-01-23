@@ -1,6 +1,0 @@
-[
-  "https://exodus.stockbit.com/order-trade/running-trade?sort=DESC&limit=50&order_by=RUNNING_TRADE_ORDER_BY_TIME&symbols[]=BBCA",
-  "https://exodus.stockbit.com/order-trade/running-trade?sort=DESC&limit=50&order_by=RUNNING_TRADE_ORDER_BY_TIME&symbols[]=BBCA",
-  "https://exodus.stockbit.com/order-trade/running-trade/chart/BBCA?period=RT_PERIOD_LAST_1_DAY",
-  "https://exodus.stockbit.com/order-trade/running-trade/chart/BBCA?period=RT_PERIOD_LAST_1_DAY&broker_code=XL&broker_code=SQ&broker_code=ZP&broker_code=BK&broker_code=AG"
-]
