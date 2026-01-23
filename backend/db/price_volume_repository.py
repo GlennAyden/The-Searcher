@@ -464,6 +464,351 @@ class PriceVolumeRepository(BaseRepository):
             
         finally:
             conn.close()
+    
+    def detect_sideways_compression(
+        self, 
+        ticker: str, 
+        days: int = 15
+    ) -> Dict[str, Any]:
+        """
+        Detect if a ticker has been in sideways compression (low volatility).
+        
+        This is a key indicator for "Tukang Parkir" strategy - looking for stocks
+        that have been consolidating before potential breakout.
+        
+        Uses Coefficient of Variation (CV) = std_dev / mean as volatility measure.
+        
+        Args:
+            ticker: Stock ticker symbol
+            days: Number of recent days to analyze (default 15)
+            
+        Returns:
+            {
+                "is_sideways": bool,
+                "compression_score": int (0-30),
+                "sideways_days": int,
+                "volatility_pct": float,
+                "price_range_pct": float,
+                "avg_close": float
+            }
+        """
+        conn = self._get_conn()
+        try:
+            cursor = conn.cursor()
+            
+            # Get recent OHLCV data
+            cursor.execute("""
+                SELECT trade_date, high, low, close
+                FROM price_volume
+                WHERE ticker = ?
+                ORDER BY trade_date DESC
+                LIMIT ?
+            """, (ticker.upper(), days + 5))  # Extra buffer
+            
+            rows = cursor.fetchall()
+            
+            if len(rows) < days:
+                return {
+                    "is_sideways": False,
+                    "compression_score": 0,
+                    "sideways_days": 0,
+                    "volatility_pct": 999.0,
+                    "price_range_pct": 999.0,
+                    "avg_close": 0
+                }
+            
+            # Use most recent 'days' records
+            rows = rows[:days]
+            
+            closes = [row[3] for row in rows]
+            highs = [row[1] for row in rows]
+            lows = [row[2] for row in rows]
+            
+            # Calculate Coefficient of Variation (CV)
+            import statistics
+            mean_close = statistics.mean(closes)
+            std_close = statistics.stdev(closes) if len(closes) > 1 else 0
+            cv = (std_close / mean_close * 100) if mean_close > 0 else 999.0
+            
+            # Calculate price range percentage
+            overall_high = max(highs)
+            overall_low = min(lows)
+            price_range_pct = ((overall_high - overall_low) / mean_close * 100) if mean_close > 0 else 999.0
+            
+            # Determine compression score based on CV
+            if cv < 2.0:  # Very tight compression (<2% variability)
+                score = 30
+                sideways_days = days
+                is_sideways = True
+            elif cv < 3.0:  # Tight compression (<3%)
+                score = 25
+                sideways_days = days
+                is_sideways = True
+            elif cv < 4.0:  # Moderate compression (<4%)
+                score = 20
+                sideways_days = max(days - 3, 5)
+                is_sideways = True
+            elif cv < 5.0:  # Loose compression (<5%)
+                score = 10
+                sideways_days = max(days - 5, 3)
+                is_sideways = True
+            else:
+                score = 0
+                sideways_days = 0
+                is_sideways = False
+            
+            return {
+                "is_sideways": is_sideways,
+                "compression_score": score,
+                "sideways_days": sideways_days,
+                "volatility_pct": round(cv, 2),
+                "price_range_pct": round(price_range_pct, 2),
+                "avg_close": round(mean_close, 2)
+            }
+            
+        finally:
+            conn.close()
+    
+    def calculate_flow_impact(
+        self, 
+        ticker: str, 
+        trade_date: str
+    ) -> Dict[str, Any]:
+        """
+        Calculate flow impact: how significant the trading value is relative to market cap.
+        
+        Flow Impact = (Volume × Close Price) / Market Cap × 100
+        
+        Higher impact indicates more significant trading activity relative to company size.
+        
+        Args:
+            ticker: Stock ticker symbol
+            trade_date: Date to calculate impact for (YYYY-MM-DD)
+            
+        Returns:
+            {
+                "flow_impact_pct": float,
+                "value_traded": float,
+                "market_cap": float,
+                "flow_score": int (0-30),
+                "has_market_cap": bool
+            }
+        """
+        from db.market_metadata_repository import MarketMetadataRepository
+        
+        conn = self._get_conn()
+        try:
+            cursor = conn.cursor()
+            
+            # Get volume and close for the date
+            cursor.execute("""
+                SELECT volume, close
+                FROM price_volume
+                WHERE ticker = ? AND trade_date = ?
+            """, (ticker.upper(), trade_date))
+            
+            row = cursor.fetchone()
+            
+            if not row:
+                return {
+                    "flow_impact_pct": 0,
+                    "value_traded": 0,
+                    "market_cap": 0,
+                    "flow_score": 0,
+                    "has_market_cap": False
+                }
+            
+            volume = row[0]
+            close = row[1]
+            value_traded = volume * close
+            
+            # Get market cap from market metadata
+            market_repo = MarketMetadataRepository()
+            mcap_data = market_repo.get_market_cap_history(ticker, days=1)
+            
+            if not mcap_data or mcap_data[0].get('market_cap', 0) <= 0:
+                # Try to get shares outstanding and calculate
+                shares = market_repo.get_shares_outstanding(ticker)
+                if shares and shares > 0:
+                    market_cap = shares * close
+                else:
+                    return {
+                        "flow_impact_pct": 0,
+                        "value_traded": value_traded,
+                        "market_cap": 0,
+                        "flow_score": 0,
+                        "has_market_cap": False
+                    }
+            else:
+                market_cap = mcap_data[0]['market_cap']
+            
+            # Calculate flow impact percentage
+            flow_impact_pct = (value_traded / market_cap * 100) if market_cap > 0 else 0
+            
+            # Determine score based on flow impact
+            if flow_impact_pct >= 5.0:  # Very high impact
+                score = 30
+            elif flow_impact_pct >= 3.0:  # High impact
+                score = 25
+            elif flow_impact_pct >= 2.0:  # Notable impact
+                score = 20
+            elif flow_impact_pct >= 1.0:  # Moderate impact
+                score = 15
+            elif flow_impact_pct >= 0.5:  # Low impact
+                score = 10
+            else:
+                score = 0
+            
+            return {
+                "flow_impact_pct": round(flow_impact_pct, 3),
+                "value_traded": round(value_traded),
+                "market_cap": round(market_cap),
+                "flow_score": score,
+                "has_market_cap": True
+            }
+            
+        finally:
+            conn.close()
+    
+    def calculate_anomaly_score(
+        self,
+        ticker: str,
+        trade_date: str,
+        volume_ratio: float
+    ) -> Dict[str, Any]:
+        """
+        Calculate composite anomaly score (0-100) for Alpha Hunter Stage 1.
+        
+        Combines three factors:
+        - Volume Spike Score (0-40): Based on volume vs median ratio
+        - Compression Score (0-30): Based on sideways consolidation
+        - Flow Impact Score (0-30): Based on value traded vs market cap
+        
+        Signal levels:
+        - FIRE (80-100): Very strong signal
+        - HOT (60-79): Strong signal
+        - WARM (40-59): Moderate signal
+        
+        Args:
+            ticker: Stock ticker symbol
+            trade_date: Date of the volume spike
+            volume_ratio: Pre-calculated volume/median ratio
+            
+        Returns:
+            {
+                "total_score": int (0-100),
+                "signal_level": str,
+                "breakdown": {
+                    "volume_score": int,
+                    "compression_score": int,
+                    "flow_score": int
+                },
+                "compression_data": {...},
+                "flow_data": {...}
+            }
+        """
+        # 1. Volume Score (0-40)
+        if volume_ratio >= 5.0:
+            volume_score = 40
+        elif volume_ratio >= 3.0:
+            volume_score = 35
+        elif volume_ratio >= 2.5:
+            volume_score = 30
+        elif volume_ratio >= 2.0:
+            volume_score = 25
+        elif volume_ratio >= 1.5:
+            volume_score = 15
+        else:
+            volume_score = 0
+        
+        # 2. Compression Score (0-30)
+        compression_data = self.detect_sideways_compression(ticker, days=15)
+        compression_score = compression_data.get("compression_score", 0)
+        
+        # 3. Flow Impact Score (0-30)
+        flow_data = self.calculate_flow_impact(ticker, trade_date)
+        flow_score = flow_data.get("flow_score", 0)
+        
+        # Total Score
+        total_score = volume_score + compression_score + flow_score
+        
+        # Signal Level
+        if total_score >= 80:
+            signal_level = "FIRE"
+        elif total_score >= 60:
+            signal_level = "HOT"
+        elif total_score >= 40:
+            signal_level = "WARM"
+        else:
+            signal_level = "COLD"
+        
+        return {
+            "total_score": total_score,
+            "signal_level": signal_level,
+            "breakdown": {
+                "volume_score": volume_score,
+                "compression_score": compression_score,
+                "flow_score": flow_score
+            },
+            "compression_data": compression_data,
+            "flow_data": flow_data
+        }
+    
+    def scan_with_scoring(
+        self,
+        scan_days: int = 30,
+        lookback_days: int = 20,
+        min_ratio: float = 2.0,
+        min_score: int = 40
+    ) -> List[Dict[str, Any]]:
+        """
+        Enhanced unusual volume scan with composite scoring.
+        
+        This is the main entry point for Alpha Hunter Stage 1 scanner.
+        It detects unusual volumes AND calculates composite anomaly scores.
+        
+        Args:
+            scan_days: Number of recent days to scan
+            lookback_days: Days to calculate median baseline
+            min_ratio: Minimum volume/median ratio
+            min_score: Minimum total score to include in results
+            
+        Returns:
+            List of scored anomaly events, sorted by total_score descending
+        """
+        # First, get basic unusual volumes
+        unusual = self.detect_unusual_volumes(
+            scan_days=scan_days,
+            lookback_days=lookback_days,
+            min_ratio=min_ratio
+        )
+        
+        scored_results = []
+        
+        for event in unusual:
+            ticker = event['ticker']
+            trade_date = event['date']
+            volume_ratio = event['ratio']
+            
+            # Calculate full anomaly score
+            score_data = self.calculate_anomaly_score(
+                ticker=ticker,
+                trade_date=trade_date,
+                volume_ratio=volume_ratio
+            )
+            
+            if score_data['total_score'] >= min_score:
+                # Merge event data with score data
+                scored_event = {
+                    **event,
+                    **score_data
+                }
+                scored_results.append(scored_event)
+        
+        # Sort by total score descending
+        scored_results.sort(key=lambda x: x['total_score'], reverse=True)
+        
+        return scored_results
 
 
 # Global instance

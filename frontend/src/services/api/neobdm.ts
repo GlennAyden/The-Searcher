@@ -6,6 +6,9 @@
 
 import { API_BASE_URL, buildParams } from './base';
 
+// Re-export from brokerFive for backward compatibility
+export { type BrokerFiveItem } from './brokerFive';
+
 export interface NeoBDMData {
     scraped_at: string | null;
     data: any[];
@@ -302,6 +305,36 @@ export const neobdmApi = {
         if (!response.ok) {
             const errorData = await response.json();
             throw new Error(errorData.error || 'Failed to fetch floor price analysis');
+        }
+        return await response.json();
+    },
+
+    /**
+     * Get scrape status for all tickers (from Done Detail)
+     */
+    getScrapeStatus: async (): Promise<{ data: { ticker: string, last_scraped: string, total_records: number }[] }> => {
+        const response = await fetch(`${API_BASE_URL}/api/done-detail/status`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch scrape status');
+        }
+        return await response.json();
+    },
+
+    /**
+     * Trigger auto-scrape for missing data
+     */
+    triggerAutoScrape: async (tickers: string[] | null, daysBack: number = 30): Promise<{ status: string, processed: string[], count: number }> => {
+        const response = await fetch(`${API_BASE_URL}/api/done-detail/auto-scrape`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ tickers, days_back: daysBack })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to trigger auto-scrape');
         }
         return await response.json();
     }

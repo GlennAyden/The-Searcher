@@ -1,9 +1,6 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/sidebar";
-
-const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Financial Sentiment & Market Intelligence",
@@ -19,7 +16,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body className={`${inter.className} bg-zinc-950 text-zinc-100 overflow-hidden`} suppressHydrationWarning>
+      <body className="font-sans bg-zinc-950 text-zinc-100 overflow-hidden" suppressHydrationWarning>
         <FilterProvider>
           <div className="flex h-screen">
             <Sidebar />

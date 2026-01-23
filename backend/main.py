@@ -25,7 +25,9 @@ from routes.neobdm import router as neobdm_router
 from routes.forecasting import router as forecasting_router
 from routes.broker_five import router as broker_five_router
 from routes.done_detail import router as done_detail_router
+from routes.done_detail import router as done_detail_router
 from routes.price_volume import router as price_volume_router
+from routes.alpha_hunter import router as alpha_hunter_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -107,7 +109,9 @@ app.include_router(neobdm_router)
 app.include_router(forecasting_router, prefix="/api")
 app.include_router(broker_five_router)
 app.include_router(done_detail_router)
+app.include_router(done_detail_router)
 app.include_router(price_volume_router)
+app.include_router(alpha_hunter_router)
 
 
 if __name__ == "__main__":

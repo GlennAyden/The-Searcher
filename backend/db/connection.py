@@ -250,7 +250,24 @@ class DatabaseConnection:
                 market_cap REAL NOT NULL,
                 currency TEXT DEFAULT 'IDR',
                 cached_at DATETIME NOT NULL,
-                source TEXT DEFAULT 'yfinance'
+                source TEXT DEFAULT 'yfinance',
+                shares_outstanding REAL,
+                last_price REAL
+            );
+        """)
+        
+        # Market Cap History (Daily snapshots for trend tracking)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS market_cap_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                trade_date TEXT NOT NULL,
+                market_cap REAL NOT NULL,
+                shares_outstanding REAL,
+                close_price REAL,
+                calculated_at DATETIME DEFAULT (datetime('now')),
+                source TEXT DEFAULT 'calculated',
+                UNIQUE(ticker, trade_date)
             );
         """)
         
@@ -276,6 +293,16 @@ class DatabaseConnection:
         except sqlite3.OperationalError:
             pass  # Column already exists
         
+        # Migration: Add shares_outstanding and last_price to market_metadata
+        try:
+            conn.execute("ALTER TABLE market_metadata ADD COLUMN shares_outstanding REAL")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            conn.execute("ALTER TABLE market_metadata ADD COLUMN last_price REAL")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
         # Optimization: Create indexes
         conn.execute("CREATE INDEX IF NOT EXISTS idx_news_ticker ON news(ticker);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_news_timestamp ON news(timestamp);")
@@ -292,6 +319,9 @@ class DatabaseConnection:
         # Market Metadata Indexes
         conn.execute("CREATE INDEX IF NOT EXISTS idx_market_meta_symbol ON market_metadata(symbol);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_market_meta_cached ON market_metadata(cached_at);")
+        
+        # Market Cap History Indexes
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_mcap_hist_ticker_date ON market_cap_history(ticker, trade_date DESC);")
         
         # Volume Daily Indexes
         conn.execute("CREATE INDEX IF NOT EXISTS idx_volume_ticker_date ON volume_daily_records(ticker, trade_date DESC);")

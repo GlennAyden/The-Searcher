@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { Search, TrendingUp, Loader2, Database } from 'lucide-react';
+import { Search, TrendingUp, Loader2, Database, TrendingDown, Minus, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PriceVolumeChart } from '@/components/charts/PriceVolumeChart';
 import { UnusualVolumeList } from '@/components/charts/UnusualVolumeList';
-import { priceVolumeApi, PriceVolumeResponse, UnusualVolumeEvent, SpikeMarker } from '@/services/api/priceVolume';
+import { priceVolumeApi, PriceVolumeResponse, UnusualVolumeEvent, SpikeMarker, MarketCapResponse, RefreshAllResponse } from '@/services/api/priceVolume';
 import { api } from '@/services/api';
+
 
 export default function PriceVolumePage() {
     const [ticker, setTicker] = useState('');
@@ -22,6 +23,34 @@ export default function PriceVolumePage() {
 
     // Spike markers state
     const [spikeMarkers, setSpikeMarkers] = useState<SpikeMarker[]>([]);
+
+    // Market cap state
+    const [marketCapData, setMarketCapData] = useState<MarketCapResponse | null>(null);
+
+    // Refresh all state
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [refreshResult, setRefreshResult] = useState<RefreshAllResponse | null>(null);
+    const [showRefreshResult, setShowRefreshResult] = useState(false);
+
+    // Handle refresh all tickers
+    const handleRefreshAll = useCallback(async () => {
+        setIsRefreshing(true);
+        setRefreshResult(null);
+        setShowRefreshResult(false);
+
+        try {
+            const result = await priceVolumeApi.refreshAllTickers();
+            setRefreshResult(result);
+            setShowRefreshResult(true);
+
+            // Auto-hide result after 10 seconds
+            setTimeout(() => setShowRefreshResult(false), 10000);
+        } catch (err) {
+            console.error('Failed to refresh all tickers:', err);
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, []);
 
     // Fetch unusual volumes on mount
     useEffect(() => {
@@ -61,10 +90,20 @@ export default function PriceVolumePage() {
                 console.error('Failed to fetch spike markers:', err);
                 setSpikeMarkers([]);
             }
+
+            // Fetch market cap data
+            try {
+                const mcapResponse = await priceVolumeApi.getMarketCap(tickerSymbol);
+                setMarketCapData(mcapResponse);
+            } catch (err) {
+                console.error('Failed to fetch market cap:', err);
+                setMarketCapData(null);
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to fetch data');
             setChartData(null);
             setSpikeMarkers([]);
+            setMarketCapData(null);
         } finally {
             setIsLoading(false);
         }
@@ -127,21 +166,78 @@ export default function PriceVolumePage() {
                     </div>
                 </div>
 
-                {/* Data source indicator */}
-                {chartData && (
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                        <Database className="w-4 h-4 text-zinc-500" />
-                        <span className="text-xs text-zinc-400">
-                            {chartData.records_count} records
-                            {chartData.source !== 'database' && (
-                                <span className="ml-2 text-emerald-400">
-                                    +{chartData.records_added} new
-                                </span>
-                            )}
-                        </span>
-                    </div>
-                )}
+                <div className="flex items-center gap-3">
+                    {/* Refresh All Button */}
+                    <button
+                        onClick={handleRefreshAll}
+                        disabled={isRefreshing}
+                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white text-sm font-medium rounded-lg hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    >
+                        {isRefreshing ? (
+                            <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Refreshing...
+                            </>
+                        ) : (
+                            <>
+                                <RefreshCw className="w-4 h-4" />
+                                Refresh All Data
+                            </>
+                        )}
+                    </button>
+
+                    {/* Data source indicator */}
+                    {chartData && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 rounded-lg border border-zinc-800">
+                            <Database className="w-4 h-4 text-zinc-500" />
+                            <span className="text-xs text-zinc-400">
+                                {chartData.records_count} records
+                                {chartData.source !== 'database' && (
+                                    <span className="ml-2 text-emerald-400">
+                                        +{chartData.records_added} new
+                                    </span>
+                                )}
+                            </span>
+                        </div>
+                    )}
+                </div>
             </div>
+
+            {/* Refresh Result Notification */}
+            {showRefreshResult && refreshResult && (
+                <div className={`flex items-center justify-between p-3 rounded-xl border ${refreshResult.errors.length > 0
+                        ? 'bg-amber-500/10 border-amber-500/20'
+                        : 'bg-emerald-500/10 border-emerald-500/20'
+                    }`}>
+                    <div className="flex items-center gap-3">
+                        {refreshResult.errors.length > 0 ? (
+                            <AlertCircle className="w-5 h-5 text-amber-400" />
+                        ) : (
+                            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                        )}
+                        <div>
+                            <p className="text-sm font-medium text-zinc-100">
+                                Refresh Complete
+                            </p>
+                            <p className="text-xs text-zinc-400">
+                                {refreshResult.tickers_updated} of {refreshResult.tickers_processed} tickers updated •
+                                {refreshResult.total_records_added} records added
+                                {refreshResult.errors.length > 0 && (
+                                    <span className="text-amber-400 ml-1">
+                                        • {refreshResult.errors.length} errors
+                                    </span>
+                                )}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => setShowRefreshResult(false)}
+                        className="text-zinc-500 hover:text-zinc-300 text-sm"
+                    >
+                        Dismiss
+                    </button>
+                </div>
+            )}
 
             {/* Search Section */}
             <div className="relative flex-shrink-0">
@@ -197,9 +293,75 @@ export default function PriceVolumePage() {
                 </div>
             )}
 
+            {/* Market Cap Stats Section - Before chart */}
+            {marketCapData && marketCapData.current_market_cap && (
+                <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 flex-shrink-0">
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-base font-semibold text-zinc-100">Market Capitalization</h3>
+                        <span className="text-xs text-zinc-500">Based on {marketCapData.history_count} trading days</span>
+                    </div>
+
+                    {/* Stats Row - Compact */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {/* Current Market Cap */}
+                        <div className="bg-zinc-800/50 rounded-lg p-2.5">
+                            <div className="text-xs text-zinc-500 mb-1">Current Market Cap</div>
+                            <div className="text-lg font-bold text-cyan-400">
+                                {marketCapData.current_market_cap >= 1e12
+                                    ? `Rp ${(marketCapData.current_market_cap / 1e12).toFixed(1)}T`
+                                    : marketCapData.current_market_cap >= 1e9
+                                        ? `Rp ${(marketCapData.current_market_cap / 1e9).toFixed(1)}B`
+                                        : `Rp ${(marketCapData.current_market_cap / 1e6).toFixed(1)}M`
+                                }
+                            </div>
+                        </div>
+
+                        {/* Shares Outstanding */}
+                        {marketCapData.shares_outstanding && (
+                            <div className="bg-zinc-800/50 rounded-lg p-2.5">
+                                <div className="text-xs text-zinc-500 mb-1">Shares Outstanding</div>
+                                <div className="text-base font-semibold text-zinc-100">
+                                    {(marketCapData.shares_outstanding / 1e9).toFixed(2)}B
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 7D Change */}
+                        {marketCapData.change_7d_pct !== null && (
+                            <div className="bg-zinc-800/50 rounded-lg p-2.5">
+                                <div className="text-xs text-zinc-500 mb-1">7D Change</div>
+                                <div className={`text-base font-semibold flex items-center gap-1 ${marketCapData.change_7d_pct > 0 ? 'text-emerald-400' :
+                                    marketCapData.change_7d_pct < 0 ? 'text-red-400' : 'text-zinc-400'
+                                    }`}>
+                                    {marketCapData.change_7d_pct > 0 ? <TrendingUp className="w-3.5 h-3.5" /> :
+                                        marketCapData.change_7d_pct < 0 ? <TrendingDown className="w-3.5 h-3.5" /> :
+                                            <Minus className="w-3.5 h-3.5" />}
+                                    {marketCapData.change_7d_pct > 0 ? '+' : ''}{marketCapData.change_7d_pct}%
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 30D Change */}
+                        {marketCapData.change_30d_pct !== null && (
+                            <div className="bg-zinc-800/50 rounded-lg p-2.5">
+                                <div className="text-xs text-zinc-500 mb-1">30D Change</div>
+                                <div className={`text-base font-semibold flex items-center gap-1 ${marketCapData.change_30d_pct > 0 ? 'text-emerald-400' :
+                                    marketCapData.change_30d_pct < 0 ? 'text-red-400' : 'text-zinc-400'
+                                    }`}>
+                                    {marketCapData.change_30d_pct > 0 ? <TrendingUp className="w-3.5 h-3.5" /> :
+                                        marketCapData.change_30d_pct < 0 ? <TrendingDown className="w-3.5 h-3.5" /> :
+                                            <Minus className="w-3.5 h-3.5" />}
+                                    {marketCapData.change_30d_pct > 0 ? '+' : ''}{marketCapData.change_30d_pct}%
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* Chart Section - Fixed height */}
             {chartData ? (
-                <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden flex-shrink-0" style={{ height: '520px' }}>
+                <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden flex-shrink-0" style={{ height: marketCapData?.history?.length ? '660px' : '520px' }}>
                     <PriceVolumeChart
                         data={chartData.data}
                         ma5={chartData.ma5}
@@ -208,6 +370,7 @@ export default function PriceVolumePage() {
                         volumeMa20={chartData.volumeMa20}
                         ticker={chartData.ticker}
                         spikeMarkers={spikeMarkers}
+                        marketCapHistory={marketCapData?.history || []}
                     />
                 </div>
             ) : isLoading ? (

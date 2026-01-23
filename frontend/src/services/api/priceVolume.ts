@@ -138,6 +138,49 @@ export const priceVolumeApi = {
         }
 
         return response.json();
+    },
+
+    /**
+     * Get market cap data and history for a ticker.
+     * 
+     * @param ticker Stock ticker symbol
+     * @param days Number of days of history (default: 90)
+     * @returns Current market cap and historical trend
+     */
+    getMarketCap: async (ticker: string, days: number = 90): Promise<MarketCapResponse> => {
+        const params = new URLSearchParams({
+            days: days.toString()
+        });
+
+        const response = await fetch(
+            `${BASE_URL}/api/price-volume/${ticker}/market-cap?${params}`
+        );
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+            throw new Error(error.detail || `Failed to fetch market cap for ${ticker}`);
+        }
+
+        return response.json();
+    },
+
+    /**
+     * Refresh OHLCV data for all existing tickers in the database.
+     * 
+     * @returns Refresh status with per-ticker results
+     */
+    refreshAllTickers: async (): Promise<RefreshAllResponse> => {
+        const response = await fetch(
+            `${BASE_URL}/api/price-volume/refresh-all`,
+            { method: 'POST' }
+        );
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+            throw new Error(error.detail || 'Failed to refresh tickers');
+        }
+
+        return response.json();
     }
 };
 
@@ -185,4 +228,48 @@ export interface SpikeMarkersResponse {
     ticker: string;
     markers: SpikeMarker[];
     marker_count: number;
+}
+
+// Market Cap types
+export interface MarketCapHistory {
+    date: string;
+    market_cap: number;
+    shares_outstanding: number | null;
+    close_price: number | null;
+}
+
+export interface MarketCapResponse {
+    ticker: string;
+    current_market_cap: number | null;
+    shares_outstanding: number | null;
+    currency: string;
+    change_1d_pct: number | null;
+    change_7d_pct: number | null;
+    change_30d_pct: number | null;
+    history: MarketCapHistory[];
+    history_count: number;
+}
+
+// Refresh All types
+export interface RefreshTickerResult {
+    ticker: string;
+    status: 'updated' | 'already_up_to_date' | 'no_new_data' | 'no_existing_data';
+    records_added: number;
+    previous_latest?: string;
+    new_latest?: string;
+    latest_date?: string;
+}
+
+export interface RefreshError {
+    ticker: string;
+    error: string;
+}
+
+export interface RefreshAllResponse {
+    tickers_processed: number;
+    tickers_updated: number;
+    total_records_added: number;
+    results: RefreshTickerResult[];
+    errors: RefreshError[];
+    message?: string;
 }

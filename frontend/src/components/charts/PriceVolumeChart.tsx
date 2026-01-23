@@ -10,10 +10,11 @@ import {
     CandlestickSeries,
     HistogramSeries,
     LineSeries,
+    AreaSeries,
     SeriesMarker,
     createSeriesMarkers
 } from 'lightweight-charts';
-import { OHLCVRecord, MARecord, SpikeMarker } from '@/services/api/priceVolume';
+import { OHLCVRecord, MARecord, SpikeMarker, MarketCapHistory } from '@/services/api/priceVolume';
 
 interface PriceVolumeChartProps {
     data: OHLCVRecord[];
@@ -23,6 +24,7 @@ interface PriceVolumeChartProps {
     volumeMa20: MARecord[];
     ticker: string;
     spikeMarkers?: SpikeMarker[];
+    marketCapHistory?: MarketCapHistory[];
 }
 
 export const PriceVolumeChart: React.FC<PriceVolumeChartProps> = ({
@@ -32,12 +34,15 @@ export const PriceVolumeChart: React.FC<PriceVolumeChartProps> = ({
     ma20,
     volumeMa20,
     ticker,
-    spikeMarkers = []
+    spikeMarkers = [],
+    marketCapHistory = []
 }) => {
     const priceChartRef = useRef<HTMLDivElement>(null);
     const volumeChartRef = useRef<HTMLDivElement>(null);
+    const mcapChartRef = useRef<HTMLDivElement>(null);
     const priceChartApiRef = useRef<IChartApi | null>(null);
     const volumeChartApiRef = useRef<IChartApi | null>(null);
+    const mcapChartApiRef = useRef<IChartApi | null>(null);
 
     useEffect(() => {
         if (!priceChartRef.current || !volumeChartRef.current || !data.length) return;
@@ -50,6 +55,10 @@ export const PriceVolumeChart: React.FC<PriceVolumeChartProps> = ({
         if (volumeChartApiRef.current) {
             volumeChartApiRef.current.remove();
             volumeChartApiRef.current = null;
+        }
+        if (mcapChartApiRef.current) {
+            mcapChartApiRef.current.remove();
+            mcapChartApiRef.current = null;
         }
 
         const priceContainer = priceChartRef.current;
@@ -205,12 +214,65 @@ export const PriceVolumeChart: React.FC<PriceVolumeChartProps> = ({
             volumeMa20Series.setData(volumeMa20.map(d => ({ time: d.time as Time, value: d.value })));
         }
 
-        // Sync time scales between charts
+        // ===== MARKET CAP CHART (Optional) =====
+        let mcapChart: IChartApi | null = null;
+        let mcapSeries: ReturnType<IChartApi['addSeries']> | null = null;
+
+        if (mcapChartRef.current && marketCapHistory.length > 0) {
+            mcapChart = createChart(mcapChartRef.current, {
+                ...commonOptions,
+                width,
+                height: 120,
+                timeScale: {
+                    ...commonOptions.timeScale,
+                    visible: true,
+                },
+            });
+            mcapChartApiRef.current = mcapChart;
+
+            // Market cap area series
+            mcapSeries = mcapChart.addSeries(AreaSeries, {
+                lineColor: '#06b6d4',
+                topColor: 'rgba(6, 182, 212, 0.4)',
+                bottomColor: 'rgba(6, 182, 212, 0.0)',
+                lineWidth: 2,
+                priceFormat: {
+                    type: 'custom',
+                    formatter: (price: number) => {
+                        if (price >= 1e12) return `${(price / 1e12).toFixed(1)}T`;
+                        if (price >= 1e9) return `${(price / 1e9).toFixed(1)}B`;
+                        if (price >= 1e6) return `${(price / 1e6).toFixed(1)}M`;
+                        return price.toFixed(0);
+                    },
+                },
+            });
+
+            mcapSeries.setData(marketCapHistory.map(d => ({
+                time: d.date as Time,
+                value: d.market_cap,
+            })));
+        }
+
+        // Sync time scales between all charts
         priceChart.timeScale().fitContent();
         volumeChart.timeScale().fitContent();
 
-        // Sync scrolling and scaling between charts
-        const syncTimeScales = (source: IChartApi, target: IChartApi) => {
+        // For market cap chart, use TIME RANGE (not logical range) to sync by actual dates
+        // This ensures the market cap chart shows the same calendar dates as price chart
+        // even though market cap has fewer data points (starting from a later date)
+        if (mcapChart) {
+            // Get the visible TIME range (calendar dates) from price chart
+            const priceTimeRange = priceChart.timeScale().getVisibleRange();
+            if (priceTimeRange) {
+                mcapChart.timeScale().setVisibleRange(priceTimeRange);
+            } else {
+                mcapChart.timeScale().fitContent();
+            }
+        }
+
+        // Sync scrolling and scaling between Price <-> Volume using Logical Range
+        // (They have the same data bars, so logical indices match)
+        const syncTimeScalesLogical = (source: IChartApi, target: IChartApi) => {
             source.timeScale().subscribeVisibleLogicalRangeChange((range) => {
                 if (range) {
                     target.timeScale().setVisibleLogicalRange(range);
@@ -218,25 +280,76 @@ export const PriceVolumeChart: React.FC<PriceVolumeChartProps> = ({
             });
         };
 
-        syncTimeScales(priceChart, volumeChart);
-        syncTimeScales(volumeChart, priceChart);
+        // Sync price <-> volume with logical range (same bars)
+        syncTimeScalesLogical(priceChart, volumeChart);
+        syncTimeScalesLogical(volumeChart, priceChart);
+
+        // Sync with market cap chart using TIME RANGE values
+        // We listen to LogicalRange EVENTS (for responsiveness) but apply TimeRange VALUES (for correct alignment)
+        // This prevents the conflict between LogicalRange bar indices and TimeRange dates
+        if (mcapChart) {
+            // When price chart scrolls/zooms, get its TIME range and apply to mcap
+            priceChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+                const timeRange = priceChart.timeScale().getVisibleRange();
+                if (timeRange) {
+                    mcapChart!.timeScale().setVisibleRange(timeRange);
+                }
+            });
+
+            // When volume chart scrolls/zooms, get its TIME range and apply to mcap
+            volumeChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+                const timeRange = volumeChart.timeScale().getVisibleRange();
+                if (timeRange) {
+                    mcapChart!.timeScale().setVisibleRange(timeRange);
+                }
+            });
+
+            // When mcap chart scrolls/zooms, get its TIME range and apply to price/volume
+            mcapChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+                const timeRange = mcapChart!.timeScale().getVisibleRange();
+                if (timeRange) {
+                    priceChart.timeScale().setVisibleRange(timeRange);
+                    volumeChart.timeScale().setVisibleRange(timeRange);
+                }
+            });
+        }
 
         // Sync crosshair between charts using series references
         priceChart.subscribeCrosshairMove((param) => {
             if (param.time) {
                 volumeChart.setCrosshairPosition(NaN, param.time, volumeSeries);
+                if (mcapChart && mcapSeries) {
+                    mcapChart.setCrosshairPosition(NaN, param.time, mcapSeries);
+                }
             } else {
                 volumeChart.clearCrosshairPosition();
+                if (mcapChart) mcapChart.clearCrosshairPosition();
             }
         });
 
         volumeChart.subscribeCrosshairMove((param) => {
             if (param.time) {
                 priceChart.setCrosshairPosition(NaN, param.time, candlestickSeries);
+                if (mcapChart && mcapSeries) {
+                    mcapChart.setCrosshairPosition(NaN, param.time, mcapSeries);
+                }
             } else {
                 priceChart.clearCrosshairPosition();
+                if (mcapChart) mcapChart.clearCrosshairPosition();
             }
         });
+
+        if (mcapChart && mcapSeries) {
+            mcapChart.subscribeCrosshairMove((param) => {
+                if (param.time) {
+                    priceChart.setCrosshairPosition(NaN, param.time, candlestickSeries);
+                    volumeChart.setCrosshairPosition(NaN, param.time, volumeSeries);
+                } else {
+                    priceChart.clearCrosshairPosition();
+                    volumeChart.clearCrosshairPosition();
+                }
+            });
+        }
 
         // Handle resize
         const handleResize = () => {
@@ -244,6 +357,7 @@ export const PriceVolumeChart: React.FC<PriceVolumeChartProps> = ({
                 const newWidth = priceChartRef.current.getBoundingClientRect().width;
                 priceChart.applyOptions({ width: newWidth });
                 volumeChart.applyOptions({ width: newWidth });
+                if (mcapChart) mcapChart.applyOptions({ width: newWidth });
             }
         };
 
@@ -259,8 +373,12 @@ export const PriceVolumeChart: React.FC<PriceVolumeChartProps> = ({
                 volumeChartApiRef.current.remove();
                 volumeChartApiRef.current = null;
             }
+            if (mcapChartApiRef.current) {
+                mcapChartApiRef.current.remove();
+                mcapChartApiRef.current = null;
+            }
         };
-    }, [data, ma5, ma10, ma20, volumeMa20, spikeMarkers]);
+    }, [data, ma5, ma10, ma20, volumeMa20, spikeMarkers, marketCapHistory]);
 
     return (
         <div className="w-full h-full flex flex-col">
@@ -301,6 +419,12 @@ export const PriceVolumeChart: React.FC<PriceVolumeChartProps> = ({
                             </div>
                         </div>
                     )}
+                    {marketCapHistory.length > 0 && (
+                        <div className="flex items-center gap-1.5 border-l border-zinc-700 pl-4">
+                            <div className="w-3 h-0.5 bg-cyan-400"></div>
+                            <span className="text-zinc-400">Market Cap</span>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -320,6 +444,18 @@ export const PriceVolumeChart: React.FC<PriceVolumeChartProps> = ({
                 className="w-full"
                 style={{ height: '150px' }}
             />
+
+            {/* Market Cap Chart (conditional) */}
+            {marketCapHistory.length > 0 && (
+                <>
+                    <div className="h-px bg-zinc-800" />
+                    <div
+                        ref={mcapChartRef}
+                        className="w-full"
+                        style={{ height: '120px' }}
+                    />
+                </>
+            )}
         </div>
     );
 };

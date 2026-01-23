@@ -21,13 +21,169 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api as generalApi } from '@/services/api';
-import { neobdmApi } from '@/services/api/neobdm';
-import type { BrokerFiveItem } from '@/services/api/brokerFive';
+import { neobdmApi, type BrokerFiveItem } from '@/services/api/neobdm';
 import type { FloorPriceAnalysis } from '@/services/api/neobdm';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 // Combine APIs for this page (neobdmApi has getTopHolders)
 const api = { ...generalApi, ...neobdmApi };
+
+// --- Scrape Status Component ---
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+interface ScrapeStatusData {
+    ticker: string;
+    last_scraped: string;
+    total_records: number;
+}
+
+const ScrapeStatusModal = () => {
+    const [statusData, setStatusData] = useState<ScrapeStatusData[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [autoScrapeLoading, setAutoScrapeLoading] = useState(false);
+    const [daysBack, setDaysBack] = useState("30");
+    const { toast } = useToast();
+
+    const fetchStatus = async () => {
+        setLoading(true);
+        try {
+            const data = await api.getScrapeStatus();
+            setStatusData(data.data || []);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAutoScrape = async () => {
+        setAutoScrapeLoading(true);
+        try {
+            const res = await api.triggerAutoScrape(null, parseInt(daysBack));
+            toast({
+                title: "Auto Scrape Started",
+                description: `Started processing ${res.count} items. Check logs for details.`,
+                variant: 'default'
+            });
+            fetchStatus(); // Refresh status
+        } catch (error: any) {
+            toast({
+                title: "Auto Scrape Failed",
+                description: error.message,
+                variant: "destructive"
+            });
+        } finally {
+            setAutoScrapeLoading(false);
+        }
+    };
+
+    // Calculate status color
+    const getStatusColor = (dateStr: string) => {
+        const today = new Date();
+        const lastDate = new Date(dateStr);
+        const diffDays = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        if (diffDays <= 1) return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"; // Today/Yesterday
+        if (diffDays <= 3) return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"; // Recent
+        return "bg-red-500/20 text-red-400 border-red-500/30"; // Old
+    };
+
+    return (
+        <Dialog onOpenChange={(open: boolean) => open && fetchStatus()}>
+            <DialogTrigger asChild>
+                <button
+                    className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-bold bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700 transition-all border border-zinc-700/50"
+                    title="Check Data Status"
+                >
+                    <Database className="w-4 h-4" />
+                    Data Status
+                </button>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl bg-zinc-950 border-zinc-800 text-zinc-100">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <Database className="w-5 h-5 text-blue-500" />
+                            Scrape Data Status
+                        </div>
+                    </DialogTitle>
+                </DialogHeader>
+
+                <div className="space-y-4">
+                    {/* Auto Scrape Controls */}
+                    <div className="flex items-center justify-between bg-zinc-900/50 p-3 rounded-lg border border-zinc-800">
+                        <div className="flex items-center gap-3">
+                            <span className="text-sm font-medium text-zinc-400">Auto-fill gaps for last:</span>
+                            <Select value={daysBack} onValueChange={setDaysBack}>
+                                <SelectTrigger className="w-[120px] h-8 bg-zinc-800 border-zinc-700">
+                                    <SelectValue placeholder="Days" />
+                                </SelectTrigger>
+                                <SelectContent className="bg-zinc-900 border-zinc-800">
+                                    <SelectItem value="7">7 Days</SelectItem>
+                                    <SelectItem value="30">30 Days</SelectItem>
+                                    <SelectItem value="60">60 Days</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <Button
+                            onClick={handleAutoScrape}
+                            disabled={autoScrapeLoading}
+                            className={cn(
+                                "bg-blue-600 hover:bg-blue-500 text-white",
+                                autoScrapeLoading && "opacity-50 cursor-not-allowed"
+                            )}
+                        >
+                            {autoScrapeLoading ? <RefreshCcw className="w-4 h-4 animate-spin mr-2" /> : <Layers className="w-4 h-4 mr-2" />}
+                            Start Auto Scrape
+                        </Button>
+                    </div>
+
+                    {/* Status Table */}
+                    <div className="border border-zinc-800 rounded-md bg-zinc-900/20">
+                        <div className="grid grid-cols-4 bg-zinc-900/80 p-3 text-xs font-bold text-zinc-400 border-b border-zinc-800">
+                            <div>TICKER</div>
+                            <div>LAST SCRAPED</div>
+                            <div>TOTAL RECORDS</div>
+                            <div>STATUS</div>
+                        </div>
+                        <ScrollArea className="h-[400px]">
+                            {loading ? (
+                                <div className="flex items-center justify-center h-full text-zinc-500">
+                                    <RefreshCcw className="w-6 h-6 animate-spin" />
+                                </div>
+                            ) : statusData.length === 0 ? (
+                                <div className="flex items-center justify-center p-8 text-zinc-500">
+                                    No data found.
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-zinc-800/50">
+                                    {statusData.map((item) => (
+                                        <div key={item.ticker} className="grid grid-cols-4 p-3 text-sm hover:bg-zinc-900/40 transition-colors items-center">
+                                            <div className="font-bold text-zinc-200">{item.ticker}</div>
+                                            <div className="font-mono text-zinc-400">{item.last_scraped}</div>
+                                            <div className="font-mono text-zinc-400">{item.total_records.toLocaleString()}</div>
+                                            <div>
+                                                <Badge variant="outline" className={cn("text-[10px] uppercase", getStatusColor(item.last_scraped))}>
+                                                    {item.last_scraped === new Date().toISOString().split('T')[0] ? "Up to Date" : "Outdated"}
+                                                </Badge>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </ScrollArea>
+                    </div>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+};
 
 export default function BrokerSummaryPage() {
     const [ticker, setTicker] = useState('');
@@ -583,8 +739,13 @@ export default function BrokerSummaryPage() {
                             Scrape
                         </button>
                     </div>
+
+                    {/* Scrape Status Button */}
+                    <div className="ml-2">
+                        <ScrapeStatusModal />
+                    </div>
                 </div>
-            </header>
+            </header >
 
             <main className="p-6 max-w-[1600px] mx-auto space-y-6">
 

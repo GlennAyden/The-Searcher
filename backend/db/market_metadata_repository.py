@@ -184,3 +184,173 @@ class MarketMetadataRepository(BaseRepository):
             conn.commit()
         finally:
             conn.close()
+    
+    def get_shares_outstanding(self, symbol: str, ttl_hours: int = 168) -> Optional[float]:
+        """
+        Get shares outstanding for a stock (cached for 1 week).
+        
+        Args:
+            symbol: Stock ticker (e.g., "BBCA")
+            ttl_hours: Cache TTL in hours (default: 168 = 1 week)
+            
+        Returns:
+            Shares outstanding, or None if unavailable
+        """
+        clean_symbol = symbol.strip().upper()
+        
+        # Check if we have it cached in market_metadata
+        conn = self._get_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT shares_outstanding, cached_at FROM market_metadata WHERE symbol = ?",
+                (clean_symbol,)
+            )
+            row = cursor.fetchone()
+            
+            if row and row[0] and not self._is_cache_expired(row[1], ttl_hours):
+                return row[0]
+        finally:
+            conn.close()
+        
+        # Fetch from yfinance
+        try:
+            if len(clean_symbol) == 4 and clean_symbol not in ["COMP", "IHSG", "JKSE"]:
+                yf_ticker = f"{clean_symbol}.JK"
+            else:
+                yf_ticker = clean_symbol
+            
+            ticker = yf.Ticker(yf_ticker)
+            info = ticker.info
+            
+            shares = info.get('sharesOutstanding')
+            if shares:
+                self._update_shares_outstanding(clean_symbol, float(shares))
+                return float(shares)
+                
+        except Exception as e:
+            print(f"[!] Error fetching shares outstanding for {symbol}: {e}")
+        
+        return None
+    
+    def _update_shares_outstanding(self, symbol: str, shares: float) -> None:
+        """Update shares outstanding in market_metadata cache."""
+        conn = self._get_conn()
+        try:
+            cursor = conn.cursor()
+            # Update if exists, the shares_outstanding column
+            cursor.execute("""
+                UPDATE market_metadata 
+                SET shares_outstanding = ?, cached_at = ?
+                WHERE symbol = ?
+            """, (shares, datetime.now().isoformat(), symbol))
+            
+            if cursor.rowcount == 0:
+                # Row doesn't exist yet, we'll create it when market cap is fetched
+                pass
+            
+            conn.commit()
+        finally:
+            conn.close()
+    
+    def save_market_cap_snapshot(self, ticker: str, trade_date: str, 
+                                  market_cap: float, shares_outstanding: float = None,
+                                  close_price: float = None) -> bool:
+        """
+        Save a market cap snapshot for a specific date.
+        
+        Args:
+            ticker: Stock ticker
+            trade_date: Date string (YYYY-MM-DD)
+            market_cap: Market cap value
+            shares_outstanding: Optional shares count
+            close_price: Optional close price used for calculation
+            
+        Returns:
+            True if saved successfully
+        """
+        conn = self._get_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO market_cap_history 
+                (ticker, trade_date, market_cap, shares_outstanding, close_price, calculated_at, source)
+                VALUES (?, ?, ?, ?, ?, ?, 'calculated')
+            """, (ticker.upper(), trade_date, market_cap, shares_outstanding, 
+                  close_price, datetime.now().isoformat()))
+            
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"[!] Error saving market cap snapshot for {ticker}: {e}")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+    
+    def get_market_cap_history(self, ticker: str, days: int = 90) -> list:
+        """
+        Get historical market cap data for a ticker.
+        
+        Args:
+            ticker: Stock ticker
+            days: Number of days of history (default: 90)
+            
+        Returns:
+            List of dicts with trade_date, market_cap, shares_outstanding, close_price
+        """
+        conn = self._get_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT trade_date, market_cap, shares_outstanding, close_price
+                FROM market_cap_history
+                WHERE ticker = ?
+                ORDER BY trade_date DESC
+                LIMIT ?
+            """, (ticker.upper(), days))
+            
+            rows = cursor.fetchall()
+            return [
+                {
+                    'date': row[0],
+                    'market_cap': row[1],
+                    'shares_outstanding': row[2],
+                    'close_price': row[3]
+                }
+                for row in reversed(rows)  # Return in chronological order
+            ]
+        finally:
+            conn.close()
+    
+    def calculate_and_save_market_cap_from_ohlcv(self, ticker: str, 
+                                                  ohlcv_data: list,
+                                                  shares_outstanding: float) -> int:
+        """
+        Calculate and save market cap history from OHLCV data.
+        
+        Args:
+            ticker: Stock ticker
+            ohlcv_data: List of OHLCV records with 'time' and 'close'
+            shares_outstanding: Current shares outstanding
+            
+        Returns:
+            Number of records saved
+        """
+        if not ohlcv_data or not shares_outstanding:
+            return 0
+        
+        saved = 0
+        for record in ohlcv_data:
+            trade_date = record.get('time')
+            close_price = record.get('close')
+            
+            if trade_date and close_price:
+                market_cap = close_price * shares_outstanding
+                if self.save_market_cap_snapshot(
+                    ticker, trade_date, market_cap, shares_outstanding, close_price
+                ):
+                    saved += 1
+        
+        return saved
+

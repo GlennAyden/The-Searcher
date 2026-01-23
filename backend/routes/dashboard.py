@@ -20,9 +20,9 @@ async def get_tickers():
 async def get_issuer_tickers():
     """Get master list of issuer tickers from the local IDX map."""
     try:
-        from modules.utils import load_ticker_map, TICKER_MAP
-        load_ticker_map()
-        tickers = sorted(list(TICKER_MAP.keys()))
+        from modules import utils
+        utils.load_ticker_map()
+        tickers = sorted(list(utils.TICKER_MAP.keys()))
         return {"tickers": tickers}
     except Exception:
         return {"tickers": []}
