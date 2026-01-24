@@ -13,8 +13,37 @@ interface SupplyData {
         passed: boolean;
         retail_buy: number;
         retail_sell: number;
+        retail_initial: number;
+        retail_remaining: number;
         depletion_pct: number;
         status: string;
+        safe_count: number;
+        holding_count: number;
+        source: string;
+        date_range: { start: string | null; end: string | null };
+        top_brokers: Array<{
+            broker: string;
+            distribution_pct: number;
+            peak_position: number;
+            current_position: number;
+            is_safe: boolean;
+        }>;
+    };
+    imposter_detection: {
+        passed: boolean;
+        total_imposter_trades: number;
+        avg_daily_imposter_pct: number;
+        top_ghost_broker: string | null;
+        peak_day: string | null;
+        brokers: Array<{
+            broker: string;
+            recurrence_pct: number;
+            avg_lot: number;
+            total_value: number;
+            total_count: number;
+        }>;
+        source: string;
+        date_range: { start: string | null; end: string | null };
     };
     one_click_orders: Array<{
         buyer: string;
@@ -35,6 +64,7 @@ interface SupplyData {
         stop_loss: number;
         strategy: string;
     };
+    analysis_range: { start: string | null; end: string | null };
     data_available: boolean;
     total_trades: number;
     trades_parsed?: number;
@@ -122,9 +152,16 @@ export default function SupplyAnalysisPanel({ ticker }: SupplyAnalysisPanelProps
                     <p className="text-slate-400 text-sm">Deep dive into Done Detail for final execution timing.</p>
                 </div>
                 {data?.data_available && (
-                    <Badge className="text-sm px-3 py-1">
-                        {data.total_trades.toLocaleString()} trades analyzed
-                    </Badge>
+                    <div className="flex flex-col items-end gap-1">
+                        <Badge className="text-sm px-3 py-1">
+                            {data.total_trades.toLocaleString()} trades analyzed
+                        </Badge>
+                        {data.analysis_range?.start && data.analysis_range?.end && (
+                            <span className="text-[10px] text-slate-500">
+                                Range: {data.analysis_range.start} - {data.analysis_range.end}
+                            </span>
+                        )}
+                    </div>
                 )}
             </div>
 
@@ -229,12 +266,79 @@ export default function SupplyAnalysisPanel({ ticker }: SupplyAnalysisPanelProps
                                     {data.fifty_pct_rule.depletion_pct}% Retail Sold
                                 </div>
                             </div>
-                            <div className="flex justify-between text-xs text-slate-500 mt-2">
-                                <span>Retail Buy: {data.fifty_pct_rule.retail_buy.toLocaleString()} lot</span>
-                                <span>Retail Sell: {data.fifty_pct_rule.retail_sell.toLocaleString()} lot</span>
-                            </div>
+                            {data.fifty_pct_rule.source === "range" ? (
+                                <div className="flex flex-wrap justify-between text-xs text-slate-500 mt-2 gap-2">
+                                    <span>Retail Peak: Rp {data.fifty_pct_rule.retail_initial.toLocaleString()}</span>
+                                    <span>Retail Remaining: Rp {data.fifty_pct_rule.retail_remaining.toLocaleString()}</span>
+                                    <span>Safe: {data.fifty_pct_rule.safe_count} / Hold: {data.fifty_pct_rule.holding_count}</span>
+                                </div>
+                            ) : (
+                                <div className="flex justify-between text-xs text-slate-500 mt-2">
+                                    <span>Retail Buy: {data.fifty_pct_rule.retail_buy.toLocaleString()} lot</span>
+                                    <span>Retail Sell: {data.fifty_pct_rule.retail_sell.toLocaleString()} lot</span>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
+
+                    {/* Imposter Detection */}
+                    {data.imposter_detection && (
+                        <Card className="bg-slate-900/50 border-purple-500/30">
+                            <CardContent className="pt-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h4 className="text-sm font-bold text-purple-400 uppercase flex items-center gap-2">
+                                        <Users className="w-4 h-4" /> Imposter Recurrence
+                                    </h4>
+                                    {data.imposter_detection.passed ? (
+                                        <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30">
+                                            <CheckCircle2 className="w-3 h-3 mr-1" /> DETECTED
+                                        </Badge>
+                                    ) : (
+                                        <Badge className="bg-slate-800 text-slate-400">
+                                            <XCircle className="w-3 h-3 mr-1" /> NONE
+                                        </Badge>
+                                    )}
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-slate-400">
+                                    <div className="bg-slate-950/50 p-3 rounded-lg">
+                                        <div className="text-[10px] uppercase text-slate-500">Imposter Trades</div>
+                                        <div className="text-lg font-bold text-purple-300">
+                                            {data.imposter_detection.total_imposter_trades.toLocaleString()}
+                                        </div>
+                                    </div>
+                                    <div className="bg-slate-950/50 p-3 rounded-lg">
+                                        <div className="text-[10px] uppercase text-slate-500">Top Ghost</div>
+                                        <div className="text-lg font-bold text-purple-300">
+                                            {data.imposter_detection.top_ghost_broker || "-"}
+                                        </div>
+                                    </div>
+                                    <div className="bg-slate-950/50 p-3 rounded-lg">
+                                        <div className="text-[10px] uppercase text-slate-500">Avg Daily %</div>
+                                        <div className="text-lg font-bold text-purple-300">
+                                            {data.imposter_detection.avg_daily_imposter_pct}%
+                                        </div>
+                                    </div>
+                                    <div className="bg-slate-950/50 p-3 rounded-lg">
+                                        <div className="text-[10px] uppercase text-slate-500">Peak Day</div>
+                                        <div className="text-sm font-bold text-purple-300">
+                                            {data.imposter_detection.peak_day || "-"}
+                                        </div>
+                                    </div>
+                                </div>
+                                {data.imposter_detection.brokers.length > 0 && (
+                                    <div className="mt-4 space-y-2">
+                                        {data.imposter_detection.brokers.slice(0, 6).map((b) => (
+                                            <div key={b.broker} className="flex items-center justify-between bg-slate-950/50 p-2 rounded-lg text-xs">
+                                                <span className="text-purple-400 font-bold">{b.broker}</span>
+                                                <span className="text-slate-500">Rec {b.recurrence_pct}%</span>
+                                                <span className="text-slate-500">Avg {b.avg_lot} lot</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    )}
 
                     {/* One-Click Orders */}
                     {data.one_click_orders.length > 0 && (

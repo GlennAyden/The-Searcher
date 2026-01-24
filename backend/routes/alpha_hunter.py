@@ -327,11 +327,19 @@ async def update_stage(
     return {"success": success}
 
 @router.get("/supply/{ticker}")
-async def get_supply_analysis(ticker: str):
+async def get_supply_analysis(
+    ticker: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
+):
     """Get supply analysis (Stage 4)."""
     analyzer = AlphaHunterSupply()
     try:
-        result = analyzer.analyze_supply(ticker)
+        result = analyzer.analyze_supply(
+            ticker,
+            analysis_start_date=start_date,
+            analysis_end_date=end_date
+        )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

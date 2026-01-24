@@ -1,13 +1,16 @@
 """
 Alpha Hunter Supply Analyzer.
-Provides analysis for Stage 4: 50% Rule, One-Click Hunter, and entry zone recommendations.
+Provides analysis for Stage 4: retail inventory (50% rule), imposter detection,
+one-click hunter, and entry zone recommendations.
 """
-from typing import Dict, List, Optional
-from datetime import datetime
+from typing import Dict, List, Optional, Set
+import math
+from db import DoneDetailRepository
 from modules.database import DatabaseManager
 from modules.broker_utils import (
-    get_retail_brokers, get_institutional_brokers, get_foreign_brokers,
-    classify_broker, is_retail, is_institutional, is_foreign
+    get_retail_brokers,
+    get_mixed_brokers,
+    classify_broker
 )
 
 
@@ -15,10 +18,16 @@ class AlphaHunterSupply:
     def __init__(self):
         self.db = DatabaseManager()
     
-    def analyze_supply(self, ticker: str, done_detail_data: List[Dict] = None) -> Dict:
+    def analyze_supply(
+        self,
+        ticker: str,
+        done_detail_data: List[Dict] = None,
+        analysis_start_date: Optional[str] = None,
+        analysis_end_date: Optional[str] = None
+    ) -> Dict:
         """
         Analyze supply dynamics from Done Detail data.
-        If done_detail_data not provided, tries to fetch from DB.
+        If done_detail_data not provided, use DB data and range analysis.
         """
         ticker = ticker.upper()
         
@@ -26,10 +35,27 @@ class AlphaHunterSupply:
             "ticker": ticker,
             "fifty_pct_rule": {
                 "passed": False,
+                "retail_buy": 0,
+                "retail_sell": 0,
                 "retail_initial": 0,
                 "retail_remaining": 0,
                 "depletion_pct": 0,
-                "status": "UNKNOWN"
+                "status": "UNKNOWN",
+                "safe_count": 0,
+                "holding_count": 0,
+                "source": "single_day",
+                "date_range": {"start": None, "end": None},
+                "top_brokers": []
+            },
+            "imposter_detection": {
+                "passed": False,
+                "total_imposter_trades": 0,
+                "avg_daily_imposter_pct": 0,
+                "top_ghost_broker": None,
+                "peak_day": None,
+                "brokers": [],
+                "source": "single_day",
+                "date_range": {"start": None, "end": None}
             },
             "one_click_orders": [],
             "broker_positions": {
@@ -43,28 +69,50 @@ class AlphaHunterSupply:
                 "stop_loss": 0,
                 "strategy": ""
             },
+            "analysis_range": {"start": None, "end": None},
             "data_available": False,
             "total_trades": 0
         }
         
+        range_analysis = None
+        repo = DoneDetailRepository()
+
         # Try to get data from DB if not provided
         if not done_detail_data:
             try:
-                from db import DoneDetailRepository
-                repo = DoneDetailRepository()
-                # Get latest date's data
-                dates = repo.get_available_dates(ticker)
-                if dates:
-                    latest_date = dates[0]
-                    done_detail_data = repo.get_raw_trades(ticker, latest_date)
+                date_range = repo.get_date_range(ticker)
+                range_start = analysis_start_date or date_range.get("min_date")
+                range_end = analysis_end_date or date_range.get("max_date")
+
+                if range_start and range_end:
+                    range_analysis = repo.get_range_analysis_from_synthesis(
+                        ticker,
+                        range_start,
+                        range_end
+                    )
+                    if range_analysis and not range_analysis.get("error"):
+                        result["analysis_range"] = {"start": range_start, "end": range_end}
+                        result["fifty_pct_rule"]["source"] = "range"
+                        result["imposter_detection"]["source"] = "range"
+
+                latest_date = date_range.get("max_date") or (date_range.get("dates") or [None])[0]
+                if latest_date:
+                    records_df = repo.get_records(ticker, latest_date)
+                    done_detail_data = self._normalize_trades(records_df.to_dict("records"))
             except Exception as e:
                 print(f"[!] Could not fetch from DB: {e}")
+        else:
+            done_detail_data = self._normalize_trades(done_detail_data)
         
-        if not done_detail_data:
+        if not done_detail_data and not (range_analysis and not range_analysis.get("error")):
             return result
-        
-        result["data_available"] = True
-        result["total_trades"] = len(done_detail_data)
+
+        done_detail_data = done_detail_data or []
+        if done_detail_data:
+            result["data_available"] = True
+            result["total_trades"] = len(done_detail_data)
+        elif range_analysis and not range_analysis.get("error"):
+            result["data_available"] = True
         
         # Analyze trades
         broker_buy = {}  # broker -> {lot, value}
@@ -111,8 +159,17 @@ class AlphaHunterSupply:
         # Calculate net positions by category
         result["broker_positions"] = self._calculate_positions(broker_buy, broker_sell)
         
-        # Calculate 50% Rule
-        result["fifty_pct_rule"] = self._check_fifty_rule(broker_buy, broker_sell)
+        # Range-based inventory + imposter detection (preferred)
+        if range_analysis and not range_analysis.get("error"):
+            result["fifty_pct_rule"] = self._build_fifty_rule_from_range(range_analysis)
+            result["imposter_detection"] = self._build_imposter_from_range(range_analysis)
+            result["analysis_range"] = {
+                "start": range_analysis.get("date_range", {}).get("start"),
+                "end": range_analysis.get("date_range", {}).get("end")
+            }
+        else:
+            result["fifty_pct_rule"] = self._check_fifty_rule_single_day(broker_buy, broker_sell)
+            result["imposter_detection"] = self._detect_imposter_from_trades(done_detail_data)
         
         # Calculate entry recommendation
         if done_detail_data:
@@ -131,6 +188,34 @@ class AlphaHunterSupply:
         
         return result
     
+    def _normalize_trades(self, trades: List[Dict]) -> List[Dict]:
+        """Normalize trade fields from DB or pasted TSV into a common schema."""
+        normalized = []
+        for trade in trades or []:
+            buyer = trade.get('buyer')
+            seller = trade.get('seller')
+            if buyer is None:
+                buyer = trade.get('buyer_code', '')
+            if seller is None:
+                seller = trade.get('seller_code', '')
+
+            lot = trade.get('lot')
+            if lot is None:
+                lot = trade.get('qty', 0)
+
+            time_str = trade.get('time')
+            if time_str is None:
+                time_str = trade.get('trade_time', '')
+
+            normalized.append({
+                "time": time_str or "",
+                "price": float(trade.get('price', 0) or 0),
+                "lot": int(lot or 0),
+                "buyer": str(buyer or "").strip(),
+                "seller": str(seller or "").strip()
+            })
+        return normalized
+
     def _calculate_positions(self, broker_buy: Dict, broker_sell: Dict) -> Dict:
         """Calculate net positions grouped by broker type."""
         positions = {
@@ -171,7 +256,7 @@ class AlphaHunterSupply:
         
         return positions
     
-    def _check_fifty_rule(self, broker_buy: Dict, broker_sell: Dict) -> Dict:
+    def _check_fifty_rule_single_day(self, broker_buy: Dict, broker_sell: Dict) -> Dict:
         """
         Check 50% Rule: Retail should have sold at least 50% of their holdings.
         """
@@ -179,8 +264,15 @@ class AlphaHunterSupply:
             "passed": False,
             "retail_buy": 0,
             "retail_sell": 0,
+            "retail_initial": 0,
+            "retail_remaining": 0,
             "depletion_pct": 0,
-            "status": "UNKNOWN"
+            "status": "UNKNOWN",
+            "safe_count": 0,
+            "holding_count": 0,
+            "source": "single_day",
+            "date_range": {"start": None, "end": None},
+            "top_brokers": []
         }
         
         # Calculate retail buy and sell using centralized classification
@@ -190,6 +282,8 @@ class AlphaHunterSupply:
         
         result["retail_buy"] = retail_buy
         result["retail_sell"] = retail_sell
+        result["retail_initial"] = retail_buy
+        result["retail_remaining"] = max(0, retail_buy - retail_sell)
         
         # Calculate depletion
         if retail_buy > 0:
@@ -216,25 +310,155 @@ class AlphaHunterSupply:
                 result["status"] = "NO_RETAIL_ACTIVITY"
         
         return result
+
+    def _build_fifty_rule_from_range(self, range_analysis: Dict) -> Dict:
+        """Build 50% rule result from range analysis."""
+        retail_cap = range_analysis.get("retail_capitulation", {})
+        brokers = retail_cap.get("brokers", [])
+        overall_pct = float(retail_cap.get("overall_pct", 0) or 0)
+
+        total_peak = sum(b.get("peak_position", 0) for b in brokers)
+        total_current = sum(b.get("current_position", 0) for b in brokers)
+
+        passed = overall_pct >= 50
+        status = "RETAIL_CAPITULATED" if passed else "RETAIL_HOLDING"
+
+        return {
+            "passed": passed,
+            "retail_buy": 0,
+            "retail_sell": 0,
+            "retail_initial": round(total_peak, 2),
+            "retail_remaining": round(max(0, total_current), 2),
+            "depletion_pct": round(overall_pct, 1),
+            "status": status,
+            "safe_count": retail_cap.get("safe_count", 0),
+            "holding_count": retail_cap.get("holding_count", 0),
+            "source": "range",
+            "date_range": range_analysis.get("date_range", {"start": None, "end": None}),
+            "top_brokers": [
+                {
+                    "broker": b.get("broker"),
+                    "distribution_pct": b.get("distribution_pct"),
+                    "peak_position": b.get("peak_position"),
+                    "current_position": b.get("current_position"),
+                    "is_safe": b.get("is_safe")
+                }
+                for b in brokers[:5]
+            ]
+        }
+
+    def _build_imposter_from_range(self, range_analysis: Dict) -> Dict:
+        """Build imposter result from range analysis."""
+        summary = range_analysis.get("summary", {})
+        imposter = range_analysis.get("imposter_recurrence", {})
+        brokers = imposter.get("brokers", [])
+
+        return {
+            "passed": bool(summary.get("total_imposter_trades")),
+            "total_imposter_trades": summary.get("total_imposter_trades", 0),
+            "avg_daily_imposter_pct": summary.get("avg_daily_imposter_pct", 0),
+            "top_ghost_broker": summary.get("top_ghost_broker"),
+            "peak_day": summary.get("peak_day"),
+            "brokers": [
+                {
+                    "broker": b.get("broker"),
+                    "recurrence_pct": b.get("recurrence_pct"),
+                    "avg_lot": b.get("avg_lot"),
+                    "total_value": b.get("total_value"),
+                    "total_count": b.get("total_count")
+                }
+                for b in brokers[:10]
+            ],
+            "source": "range",
+            "date_range": range_analysis.get("date_range", {"start": None, "end": None})
+        }
+
+    def _detect_imposter_from_trades(self, trades: List[Dict]) -> Dict:
+        """Detect imposters from a single-day trade list."""
+        retail_brokers = set(get_retail_brokers()) | set(get_mixed_brokers())
+        lots = [int(t.get("lot", 0) or 0) for t in trades if int(t.get("lot", 0) or 0) > 0]
+
+        if not lots:
+            return {
+                "passed": False,
+                "total_imposter_trades": 0,
+                "avg_daily_imposter_pct": 0,
+                "top_ghost_broker": None,
+                "peak_day": None,
+                "brokers": [],
+                "source": "single_day",
+                "date_range": {"start": None, "end": None}
+            }
+
+        lots_sorted = sorted(lots)
+        threshold_index = max(0, int(math.ceil(len(lots_sorted) * 0.95)) - 1)
+        threshold = lots_sorted[threshold_index]
+
+        broker_stats = {}
+        total_imposter = 0
+        for trade in trades:
+            lot = int(trade.get("lot", 0) or 0)
+            if lot < threshold:
+                continue
+
+            buyer = trade.get("buyer", "")
+            seller = trade.get("seller", "")
+            price = float(trade.get("price", 0) or 0)
+            value = lot * price * 100
+
+            for broker in [buyer, seller]:
+                if broker in retail_brokers:
+                    stats = broker_stats.setdefault(broker, {"total_value": 0, "total_count": 0, "lot_sum": 0})
+                    stats["total_value"] += value
+                    stats["total_count"] += 1
+                    stats["lot_sum"] += lot
+                    total_imposter += 1
+
+        brokers = []
+        for broker, stats in broker_stats.items():
+            avg_lot = stats["lot_sum"] / max(1, stats["total_count"])
+            brokers.append({
+                "broker": broker,
+                "recurrence_pct": 100,
+                "avg_lot": round(avg_lot, 0),
+                "total_value": round(stats["total_value"], 2),
+                "total_count": stats["total_count"]
+            })
+
+        brokers.sort(key=lambda x: x["total_value"], reverse=True)
+        avg_daily_pct = round((total_imposter / max(1, len(trades))) * 100, 1)
+
+        return {
+            "passed": total_imposter > 0,
+            "total_imposter_trades": total_imposter,
+            "avg_daily_imposter_pct": avg_daily_pct,
+            "top_ghost_broker": brokers[0]["broker"] if brokers else None,
+            "peak_day": None,
+            "brokers": brokers[:10],
+            "source": "single_day",
+            "date_range": {"start": None, "end": None}
+        }
     
     def _get_strategy(self, analysis: Dict) -> str:
         """Generate strategy recommendation based on analysis."""
         fifty_passed = analysis["fifty_pct_rule"]["passed"]
         has_one_click = len(analysis["one_click_orders"]) > 0
+        has_imposter = analysis.get("imposter_detection", {}).get("passed", False)
         
         inst_positions = analysis["broker_positions"]["institutional"]
         inst_buying = any(p["net_lot"] > 0 for p in inst_positions)
         
-        if fifty_passed and inst_buying and has_one_click:
+        if fifty_passed and inst_buying and has_one_click and has_imposter:
             return "STRONG BUY - All signals aligned"
-        elif fifty_passed and inst_buying:
+        if fifty_passed and inst_buying and has_imposter:
+            return "BUY - Smart money confirmed"
+        if fifty_passed and inst_buying:
             return "BUY - Institutional accumulating, retail exiting"
-        elif inst_buying and has_one_click:
+        if inst_buying and has_one_click:
             return "SPECULATIVE BUY - Watch for confirmation"
-        elif fifty_passed:
+        if fifty_passed:
             return "WAIT - Retail exiting but no institutional interest yet"
-        else:
-            return "AVOID - Conditions not met"
+        return "AVOID - Conditions not met"
     
     def parse_done_detail_tsv(self, raw_data: str) -> List[Dict]:
         """Parse TSV/tab-separated Done Detail data."""
