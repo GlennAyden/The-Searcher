@@ -114,6 +114,8 @@ class InvestorScraper:
         
         try:
             resp = self.session.get(url, timeout=15)
+            
+
             if resp.status_code != 200:
                 print(f"[-] Index page {page} returned status {resp.status_code}")
                 return []
@@ -124,11 +126,42 @@ class InvestorScraper:
             seen_urls = set()
             
             # Find all article links with dates
-            for a_tag in soup.find_all('a', href=True):
+            # Find main articles container to avoid sidebar
+            # Investor.id main column usually has class 'col-9' or similar
+            # Strategy: Find valid container with MOST article links
+            main_container = None
+            max_links_count = 0
+            
+            # 1. Try Preferred Columns First
+            for div in soup.find_all('div', class_=True):
+                if any(c in div.get('class', []) for c in ['col-9', 'col-lg-9', 'col-md-9', 'pr-40']):
+                    links = div.find_all('a', href=re.compile(r'/[a-zA-Z0-9-]+/\d+'))
+                    if len(links) > max_links_count:
+                        max_links_count = len(links)
+                        main_container = div
+            
+            # 2. Fallback: If no good preferred column, find ANY dense container
+            if max_links_count < 5:
+                max_links_count = 0
+                main_container = None
+                for div in soup.find_all('div', class_=True):
+                    links = div.find_all('a', href=re.compile(r'/[a-zA-Z0-9-]+/\d+'))
+                    if len(links) > max_links_count:
+                         max_links_count = len(links)
+                         main_container = div
+
+            # Track source category for logging purposes
+            source_category = "corporate-action" if "corporate-action" in base_url else "market"
+
+            search_scope = main_container if main_container else soup
+            
+            # Find all article links with dates
+            for a_tag in search_scope.find_all('a', href=True):
                 href = a_tag['href']
                 
-                # Filter: Only article URLs (contain /market/ or /corporate-action/ with ID)
-                if not re.search(r'/(market|corporate-action)/\d+', href):
+                # Accept any valid article link (corporate-action, market, or stock)
+                # Links from /corporate-action/ page may point to /market/ - this is normal behavior
+                if not re.search(r'/(corporate-action|market|stock)/\d+', href):
                     continue
                 
                 # Skip index pages
@@ -146,15 +179,24 @@ class InvestorScraper:
                 # Get title
                 title = a_tag.get_text(strip=True)
                 
-                # Find date near this link
+                # Find date near this link - IMPROVED
                 date_text = ""
                 parent = a_tag.find_parent()
                 if parent:
-                    # Search for date pattern in parent text
+                    # 1. Check Parent
                     parent_text = parent.get_text(separator=' ', strip=True)
                     date_match = re.search(r'(\d{1,2}\s+\w+\s+\d{4}\s*\|\s*\d{1,2}:\d{2}\s*WIB)', parent_text, re.I)
                     if date_match:
                         date_text = date_match.group(1)
+                    
+                    # 2. Check Grandparent (fixes missing dates on deeper pages)
+                    if not date_text:
+                        grandparent = parent.find_parent()
+                        if grandparent:
+                            gp_text = grandparent.get_text(separator=' ', strip=True)
+                            dm = re.search(r'(\d{1,2}\s+\w+\s+\d{4}\s*\|\s*\d{1,2}:\d{2}\s*WIB)', gp_text, re.I)
+                            if dm:
+                                date_text = dm.group(1)
                 
                 # If no date found near link, try to find in siblings
                 if not date_text:
@@ -337,8 +379,8 @@ class InvestorScraper:
                     # 1. Check if already in DB or already processed in this session
                     if url in existing_urls or url in processed_urls:
                         worthless_streak += 1
-                        if worthless_streak >= 20:
-                            print(f"[STOP] 20 consecutive existing/duplicate URLs.")
+                        if worthless_streak >= 10:
+                            print(f"[STOP] 10 consecutive existing/duplicate URLs.")
                             stop_category = True
                             break
                         continue

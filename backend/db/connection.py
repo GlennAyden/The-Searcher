@@ -195,7 +195,7 @@ class DatabaseConnection:
         except sqlite3.OperationalError:
             pass
 
-        # Market Analytics Cache (OHLCV Data for Forecasting)
+        # Market Analytics Cache (OHLCV Data)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS market_analytics_cache (
                 ticker TEXT,

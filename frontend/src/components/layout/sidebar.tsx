@@ -13,7 +13,6 @@ import {
     ChevronRight,
     LineChart,
     BarChart3,
-    Zap,
     ArrowRightLeft,
     ClipboardList,
     CandlestickChart,
@@ -44,7 +43,7 @@ const navGroups = [
             { icon: ArrowRightLeft, label: 'Broker Summary', href: '/broker-summary' },
             { icon: LineChart, label: 'Flow Tracker', href: '/neobdm-tracker' },
             { icon: ClipboardList, label: 'Done Detail', href: '/done-detail' },
-            { icon: Zap, label: 'Forecasting', href: '/forecasting' },
+
         ]
     },
     {

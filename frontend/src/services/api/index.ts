@@ -12,15 +12,12 @@ export * from './neobdm';
 export * from './brokerFive';
 export * from './doneDetail';
 
-export * from './forecasting';
-
 // Re-export for convenience
 import { dashboardApi } from './dashboard';
 import { newsApi } from './news';
 import { disclosuresApi } from './disclosures';
 import { neobdmApi } from './neobdm';
 import { scrapersApi } from './scrapers';
-import { forecastingApi } from './forecasting';
 import { brokerFiveApi } from './brokerFive';
 import { doneDetailApi } from './doneDetail';
 
@@ -30,7 +27,6 @@ const api = {
     ...disclosuresApi,
     ...neobdmApi,
     ...scrapersApi,
-    ...forecastingApi,
     ...brokerFiveApi,
     ...doneDetailApi
 };
@@ -41,7 +37,6 @@ export {
     disclosuresApi,
     neobdmApi,
     scrapersApi,
-    forecastingApi,
     brokerFiveApi,
     doneDetailApi,
     api

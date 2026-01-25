@@ -75,6 +75,10 @@ async def get_news(
                     s_name = "EmitenNews"
                 elif "idx.co.id" in url: 
                     s_name = "IDX"
+                elif "bisnis.com" in url:
+                    s_name = "Bisnis.com"
+                elif "investor.id" in url:
+                    s_name = "Investor.id"
                 else: 
                     s_name = "Web"
             except:

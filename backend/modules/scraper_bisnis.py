@@ -453,15 +453,15 @@ class BisnisScraper:
                 # 1. Check if already in DB or processed in this session (FAST FILTER)
                 if url in existing_urls or url in processed_urls:
                     worthless_streak += 1
-                    if worthless_streak >= 20:
-                        print(f"[STOP] 20 consecutive existing/duplicate URLs. Stopping.")
+                    if worthless_streak >= 10:
+                        print(f"[STOP] 10 consecutive existing/duplicate URLs. Stopping.")
                         stop_scraping = True
                         break
                     continue
                 
                 # Mark as processed immediately to prevent duplicates
                 processed_urls.add(url)
-                worthless_streak = 0
+                # Don't reset worthless_streak here - reset only on successful save
                 
                 # 2. Index-level date filtering (FAST)
                 # Skip if estimated date is NEWER than target_end
@@ -490,6 +490,7 @@ class BisnisScraper:
                 is_bad, reason = is_blacklisted(index_title, url)
                 if is_bad:
                     blacklisted_count += 1
+                    worthless_streak += 1
                     continue
                 
                 # 4. Fetch article detail for PRECISE date
@@ -514,7 +515,8 @@ class BisnisScraper:
                         print(f"  [SKIP] No ticker/whitelist: {article['title'][:30]}...")
                         continue
                 
-                # Success!
+                # Success! Reset streak only on successful save
+                worthless_streak = 0
                 self.news_data.append(article)
                 valid_articles += 1
                 print(f"  [OK] [{article_date}] {article['title'][:50]}...")

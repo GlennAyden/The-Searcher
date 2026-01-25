@@ -9,7 +9,6 @@ Core capabilities:
 - Price and volume analytics with anomaly scoring.
 - Alpha Hunter multi-stage screening workflow.
 - Done Detail analysis from pasted trade data.
-- Forecasting and backtest endpoints for price series.
 - Scraper orchestration for data backfill.
 
 Tech stack:
@@ -189,26 +188,12 @@ What you see:
 - Sankey and inventory views for buy/sell distribution.
 - Cached synthesis for fast range analysis.
 
-### 10) Forecasting
-UI route: `/forecasting`
-Purpose: Price forecasting plus backtest and insight endpoints.
-Data sources: yfinance and `market_analytics_cache`.
-Key endpoints:
-- `GET /api/forecast/{symbol}`
-- `GET /api/forecast/{symbol}/backtest`
-- `GET /api/forecast/{symbol}/insight`
-
-What you see:
-- Forecast chart with trend projection.
-- Backtest results for recent periods.
-- Automated narrative insights.
-
-### 11) Broker Stalker
+### 10) Broker Stalker
 UI route: `/broker-stalker`
 Purpose: Visual concept for broker surveillance.
 Status: UI prototype with static data (no backend wiring yet).
 
-### 12) Scraper Engine
+### 11) Scraper Engine
 Backend-only feature for data ingestion and backfill.
 Key endpoint:
 - `POST /api/scrape`

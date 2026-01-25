@@ -15,6 +15,27 @@ import asyncio
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+    # Patch to silence "WinError 10054 An existing connection was forcibly closed"
+    # This is a known issue with asyncio ProactorEventLoop on Windows
+    try:
+        from asyncio import proactor_events
+        _original_connection_lost = proactor_events._ProactorBasePipeTransport._call_connection_lost
+        
+        def _silent_connection_lost(self, exc=None):
+            try:
+                _original_connection_lost(self, exc)
+            except ConnectionResetError:
+                pass
+            except OSError as e:
+                if getattr(e, 'winerror', 0) == 10054:
+                    pass
+                else:
+                    raise
+        
+        proactor_events._ProactorBasePipeTransport._call_connection_lost = _silent_connection_lost
+    except ImportError:
+        pass
+
 # Import all routers
 from routes.dashboard import router as dashboard_router
 from routes.news import router as news_router
@@ -22,7 +43,6 @@ from routes.disclosures import router as disclosures_router
 from routes.scrapers import router as scrapers_router
 from routes.neobdm import router as neobdm_router
 
-from routes.forecasting import router as forecasting_router
 from routes.broker_five import router as broker_five_router
 from routes.done_detail import router as done_detail_router
 from routes.done_detail import router as done_detail_router
@@ -106,7 +126,6 @@ app.include_router(disclosures_router)
 app.include_router(scrapers_router)
 app.include_router(neobdm_router)
 
-app.include_router(forecasting_router, prefix="/api")
 app.include_router(broker_five_router)
 app.include_router(done_detail_router)
 app.include_router(done_detail_router)
