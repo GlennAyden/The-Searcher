@@ -17,7 +17,8 @@ import {
     ArrowRightLeft,
     ClipboardList,
     CandlestickChart,
-    FlaskConical
+    FlaskConical,
+    Search
 } from 'lucide-react';
 import { ScraperControl } from './scraper-control';
 
@@ -33,6 +34,7 @@ const navGroups = [
         items: [
             { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard' },
             { icon: Newspaper, label: 'News Library', href: '/news-library' },
+            { icon: Search, label: 'Story Finder', href: '/story-finder' },
         ]
     },
     {

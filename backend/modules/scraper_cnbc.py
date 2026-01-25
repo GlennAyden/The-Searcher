@@ -188,12 +188,17 @@ class CNBCScraper:
         target_start = start_date.date() if isinstance(start_date, datetime) else start_date
         target_end = end_date.date() if isinstance(end_date, datetime) else end_date
 
-        print(f"[*] CNBC Hybrid Scraper: Target {target_start} -> {target_end}")
+        print(f"\n" + "="*60)
+        print(" CNBC INDONESIA SCRAPER")
+        print("="*60)
+        print(f"   Target Range: {target_start} -> {target_end}")
+        print(f"   Max Pages: {pages}")
         
         # Incremental Scraping Setup
         db = DatabaseManager()
         existing_urls = db.get_all_urls()
-        print(f"[*] Loaded {len(existing_urls)} existing URLs from DB for incremental check.")
+        print(f"   Existing URLs in DB: {len(existing_urls)}")
+        print("-"*60)
         
         self.news_data = []
         

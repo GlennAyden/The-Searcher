@@ -379,15 +379,18 @@ class PriceVolumeRepository(BaseRepository):
         self,
         ticker: str,
         lookback_days: int = 20,
-        min_ratio: float = 2.0
+        min_ratio: float = 3.0,
+        min_price_change: float = 5.0
     ) -> List[Dict[str, Any]]:
         """
         Get volume spike markers for a specific ticker to display on chart.
+        Only shows SIGNIFICANT spikes (high volume + notable price movement).
         
         Args:
             ticker: Stock ticker symbol
             lookback_days: Number of days for median calculation
-            min_ratio: Minimum volume/median ratio to flag as spike
+            min_ratio: Minimum volume/median ratio (default 3x for cleaner chart)
+            min_price_change: Minimum absolute price change % (default 5%)
             
         Returns:
             List of spike markers with date, volume, ratio, and category
@@ -431,20 +434,21 @@ class PriceVolumeRepository(BaseRepository):
                 if median_volume > 0:
                     ratio = volume / median_volume
                     
-                    if ratio >= min_ratio:
-                        # Determine category
-                        if ratio >= 5:
+                    # Calculate price change
+                    price_change = ((close - open_price) / open_price * 100) if open_price > 0 else 0
+                    
+                    # Filter: Must have BOTH significant volume AND price movement
+                    if ratio >= min_ratio and abs(price_change) >= min_price_change:
+                        # Determine category based on ratio
+                        if ratio >= 8:
                             category = 'extreme'
                             color = '#ef4444'  # red
-                        elif ratio >= 3:
+                        elif ratio >= 5:
                             category = 'high'
                             color = '#f59e0b'  # amber
                         else:
                             category = 'elevated'
                             color = '#22c55e'  # green
-                        
-                        # Calculate price change
-                        price_change = ((close - open_price) / open_price * 100) if open_price > 0 else 0
                         
                         spike_markers.append({
                             'time': trade_date,

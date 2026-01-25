@@ -181,6 +181,30 @@ export const priceVolumeApi = {
         }
 
         return response.json();
+    },
+
+    /**
+     * Get HK Methodology analysis for a ticker (Volume Asymmetry, Pre-Spike Accumulation).
+     * 
+     * @param ticker Stock ticker symbol
+     * @param spikeDate Optional specific spike date to analyze
+     * @returns HK analysis data with volume asymmetry and accumulation details
+     */
+    getHKAnalysis: async (ticker: string, spikeDate?: string): Promise<HKAnalysisResponse> => {
+        const params = new URLSearchParams();
+        if (spikeDate) {
+            params.set('spike_date', spikeDate);
+        }
+
+        const url = `${BASE_URL}/api/price-volume/${ticker}/hk-analysis${params.toString() ? '?' + params.toString() : ''}`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+            throw new Error(error.detail || `Failed to fetch HK analysis for ${ticker}`);
+        }
+
+        return response.json();
     }
 };
 
@@ -272,4 +296,42 @@ export interface RefreshAllResponse {
     results: RefreshTickerResult[];
     errors: RefreshError[];
     message?: string;
+}
+
+// HK Methodology Analysis types
+export interface HKVolumeAsymmetry {
+    volume_up_total: number;
+    volume_down_total: number;
+    asymmetry_ratio: number;
+    verdict: 'STRONG_HOLDING' | 'HOLDING' | 'NEUTRAL' | 'DISTRIBUTING' | 'NO_DATA';
+    days_analyzed: number;
+    pullback_log: Array<{
+        date: string;
+        price: number;
+        volume: number;
+        price_chg: number;
+        vol_chg: number;
+        status: string;
+    }>;
+}
+
+export interface HKAccumulation {
+    period_start: string | null;
+    period_end: string | null;
+    detection_method: string;
+    accumulation_days: number;
+    total_volume: number;
+    avg_daily_volume: number;
+    volume_trend: 'INCREASING' | 'STABLE' | 'DECREASING' | 'NO_DATA';
+    up_days: number;
+    down_days: number;
+    net_movement_pct: number;
+}
+
+export interface HKAnalysisResponse {
+    ticker: string;
+    spike_date: string;
+    spike_source: 'auto_detected' | 'user_specified';
+    volume_asymmetry: HKVolumeAsymmetry;
+    accumulation: HKAccumulation;
 }

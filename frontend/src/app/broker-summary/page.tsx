@@ -16,7 +16,8 @@ import {
     Plus,
     X,
     Database,
-    Trophy
+    Trophy,
+    Layers
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api as generalApi } from '@/services/api';

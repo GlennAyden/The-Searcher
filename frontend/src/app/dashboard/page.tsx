@@ -35,25 +35,30 @@ export default function DashboardPage() {
     const fetchMetrics = async () => {
         try {
             const stats = await api.getDashboardStats(ticker, dateRange.start, dateRange.end);
-            setMetrics(stats);
+            // Map API response to local state structure
+            setMetrics({
+                price: stats.current_price || 0,
+                price_delta: stats.price_change || 0,
+                mood_score: stats.mood_score || 0,
+                mood_label: stats.market_mood || 'Netral 😐',
+                correlation: stats.correlation || 0,
+                volume: stats.news_volume || 0,
+                trends: stats.trends || {
+                    price: [],
+                    mood: [],
+                    correlation: [],
+                    volume: []
+                }
+            });
         } catch (error) {
             console.error("Failed to fetch metrics:", error);
         }
     };
 
     useEffect(() => {
-        const initDashboard = async () => {
-            await fetchMetrics();
-
-            // Auto-refresh logic: If volume is 0 (no news analyzed today) 
-            // and we are looking at 'today' as end date, trigger a refresh.
-            const today = new Date().toISOString().split('T')[0];
-            if (metrics.volume === 0 && dateRange.end === today && !refreshing) {
-                console.log("[Auto] No news found for today, triggering background intelligence refresh...");
-                handleRefresh();
-            }
-        };
-        initDashboard();
+        // Only fetch metrics on load - no auto-scraping
+        // Scraping is now triggered manually via "Refresh Intelligence" button
+        fetchMetrics();
     }, [ticker, dateRange.start, dateRange.end]);
 
     const [refreshKey, setRefreshKey] = useState(Date.now());
@@ -62,11 +67,22 @@ export default function DashboardPage() {
         if (refreshing) return;
         setRefreshing(true);
         try {
-            // Trigger scrapes for major sources
-            await Promise.all([
-                api.runScraper("CNBC Indonesia", dateRange.start, dateRange.end),
-                api.runScraper("EmitenNews", dateRange.start, dateRange.end)
-            ]);
+            // Scrape ALL news sources (except IDX) in parallel
+            const sources = [
+                "CNBC Indonesia",
+                "EmitenNews",
+                "Bisnis.com",
+                "Investor.id"
+            ];
+
+            console.log("[Refresh] Triggering scrape for all sources:", sources.join(", "));
+
+            await Promise.all(
+                sources.map(source =>
+                    api.runScraper(source, dateRange.start, dateRange.end)
+                        .catch(err => console.warn(`[Refresh] ${source} failed:`, err))
+                )
+            );
 
             // Refresh metrics
             await fetchMetrics();

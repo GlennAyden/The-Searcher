@@ -59,7 +59,7 @@ class MarketData:
                 # print(f"Fetching {yf_ticker} from {start_date}...")
                 # Verify start_date is not in future
                 if datetime.strptime(start_date, '%Y-%m-%d').date() <= today:
-                    df_new = yf.download(yf_ticker, start=start_date, end=None, progress=False)
+                    df_new = yf.download(yf_ticker, start=start_date, end=None, progress=False, auto_adjust=False)
                     
                     if not df_new.empty:
                         # Handle MultiIndex columns (common in new yfinance)

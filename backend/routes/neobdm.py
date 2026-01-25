@@ -697,11 +697,11 @@ async def get_volume_daily(ticker: str):
             "records_added": 10
         }
     """
-    from modules.database import DatabaseManager
+    from db.neobdm_repository import NeoBDMRepository
     
     try:
-        db_manager = DatabaseManager()
-        result = db_manager.get_or_fetch_volume(ticker.upper())
+        neobdm_repo = NeoBDMRepository()
+        result = neobdm_repo.get_or_fetch_volume(ticker.upper())
         
         return result
         

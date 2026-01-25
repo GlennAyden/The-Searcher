@@ -124,6 +124,7 @@ class DatabaseConnection:
                 method TEXT,
                 period TEXT,
                 data_json TEXT
+            );
         """)
 
         # NeoBDM Broker Summaries (Net Buy & Net Sell)

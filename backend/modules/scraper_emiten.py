@@ -139,7 +139,11 @@ class EmitenNewsScraper:
         if isinstance(start_date, datetime): start_date = start_date.date()
         if isinstance(end_date, datetime): end_date = end_date.date()
         
-        print(f"[*] Starting EmitenNews Scraper (Parallel): {start_date} to {end_date}")
+        print(f"\n" + "="*60)
+        print(" EMITENNEWS SCRAPER")
+        print("="*60)
+        print(f"   Target Range: {start_date} -> {end_date}")
+        print("-"*60)
         
         extracted_articles = []
         page = 1

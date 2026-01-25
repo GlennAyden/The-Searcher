@@ -1,77 +1,63 @@
 """
-Merge missing tickers into the existing ticker lists.
-This script handles the merge carefully by:
-1. Adding missing tickers from TradingView
-2. Preserving existing tickers (even if not in TradingView)
-3. Sorting alphabetically
-4. Ensuring both files are in sync
+Merge missing tickers into the ticker database.
+Uses ticker_utils module for all operations.
 """
 import json
+import os
+import sys
+
+# Add project root to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from modules.ticker_utils import get_ticker_map, add_ticker, get_ticker_count
 
 def merge_tickers():
-    # Load existing tickers
-    with open('backend/data/tickers_idx.json', 'r') as f:
-        existing_tickers = json.load(f)
+    """Merge missing tickers from analysis file into database."""
     
-    with open('backend/data/idn_tickers.json', 'r') as f:
-        existing_ticker_names = json.load(f)
+    analysis_file = os.path.join(os.path.dirname(__file__), '..', 'data', 'missing_tickers_analysis.json')
+    
+    if not os.path.exists(analysis_file):
+        print("❌ No analysis file found. Run scrape_missing_tickers.py first.")
+        return
     
     # Load analysis
-    with open('backend/data/missing_tickers_analysis.json', 'r') as f:
+    with open(analysis_file, 'r') as f:
         analysis = json.load(f)
     
-    missing_tickers = analysis['missing']
-    tradingview_data = analysis['tradingview_data']
+    missing_tickers = analysis.get('missing', [])
+    tradingview_data = analysis.get('tradingview_data', {})
     
-    # Combine: keep all existing + add missing
-    updated_ticker_list = sorted(set(existing_tickers + missing_tickers))
+    if not missing_tickers:
+        print("✅ No missing tickers to add!")
+        return
     
-    # Update ticker names dictionary
-    updated_ticker_names = existing_ticker_names.copy()
+    count_before = get_ticker_count()
+    added_count = 0
     
-    # Add missing tickers from TradingView
+    print(f"📊 Current database: {count_before} tickers")
+    print(f"📊 Missing tickers to add: {len(missing_tickers)}")
+    
+    # Add missing tickers
     for ticker in missing_tickers:
-        if ticker in tradingview_data and ticker not in updated_ticker_names:
-            updated_ticker_names[ticker] = tradingview_data[ticker]
+        # Get company name from TradingView data or use placeholder
+        company_name = tradingview_data.get(ticker)
+        if not company_name:
+            company_name = f"PT {ticker} Tbk (VERIFY NAME)"
+            print(f"⚠️  No company name for {ticker}, using placeholder")
+        
+        if add_ticker(ticker, company_name):
+            added_count += 1
+            print(f"  ✅ Added: {ticker} - {company_name}")
+        else:
+            print(f"  ⏭️  Skipped (already exists): {ticker}")
     
-    # Add any ticker from updated_ticker_list that's not in names dict yet
-    # (with placeholder names for manual update later)
-    for ticker in updated_ticker_list:
-        if ticker not in updated_ticker_names:
-            # Try to get from TradingView first
-            if ticker in tradingview_data:
-                updated_ticker_names[ticker] = tradingview_data[ticker]
-            else:
-                # Placeholder - will need manual update
-                updated_ticker_names[ticker] = f"PT {ticker} Tbk (VERIFY NAME)"
-                print(f"⚠️  Warning: No company name found for {ticker}, added placeholder")
+    count_after = get_ticker_count()
     
-    # Sort ticker names by key
-    updated_ticker_names = dict(sorted(updated_ticker_names.items()))
-    
-    # Verify both lists match
-    assert set(updated_ticker_list) == set(updated_ticker_names.keys()), "Mismatch between ticker lists!"
-    
-    print(f"Before: {len(existing_tickers)} tickers")
-    print(f"After: {len(updated_ticker_list)} tickers")
-    print(f"Added: {len(updated_ticker_list) - len(existing_tickers)} new tickers")
-    
-    # Save updated lists
-    with open('backend/data/tickers_idx.json', 'w') as f:
-        json.dump(updated_ticker_list, f, indent=2)
-    
-    with open('backend/data/idn_tickers.json', 'w') as f:
-        json.dump(updated_ticker_names, f, indent=2, ensure_ascii=False)
-    
-    print("\n✅ Successfully updated both ticker files!")
-    print(f"📝 Total tickers: {len(updated_ticker_list)}")
-    
-    # Show first 10 added tickers
-    newly_added = [t for t in updated_ticker_list if t not in existing_tickers]
-    print(f"\n📊 Sample of newly added tickers (first 10):")
-    for ticker in newly_added[:10]:
-        name = updated_ticker_names.get(ticker, "Unknown")
-        print(f"  - {ticker}: {name}")
+    print(f"\n=== Summary ===")
+    print(f"Before: {count_before} tickers")
+    print(f"After: {count_after} tickers")
+    print(f"Added: {added_count} new tickers")
+    print("✅ Merge completed!")
 
 if __name__ == "__main__":
     merge_tickers()

@@ -25,6 +25,8 @@ async def run_scraper(request: ScrapeRequest):
     Supported sources:
     - "EmitenNews": Scrape from emitennews.com
     - "CNBC Indonesia": Scrape from cnbcindonesia.com
+    - "Bisnis.com": Scrape from bisnis.com market section
+    - "Investor.id": Scrape from investor.id (corporate-action + market)
     - "IDX (Keterbukaan Informasi)": Scrape IDX disclosures
     
     Args:
@@ -105,6 +107,32 @@ async def run_scraper(request: ScrapeRequest):
             message = "Pipeline IDX Selesai. Data telah terdownload dan terindeks untuk RAG."
             new_count = -1  # Special code for IDX
             
+        elif request.source == "Bisnis.com":
+            from modules.scraper_bisnis import BisnisScraper
+            scraper = BisnisScraper()
+            # Bisnis scraper already runs analysis internally
+            analyzed_data = scraper.run(start_date=start_dt, end_date=end_dt)
+            
+            if analyzed_data:
+                db_manager.save_news(analyzed_data)
+                new_count = len(analyzed_data)
+                message = f"Berhasil mengambil {new_count} berita dari Bisnis.com."
+            else:
+                message = "Tidak ada berita baru ditemukan di Bisnis.com."
+
+        elif request.source == "Investor.id":
+            from modules.scraper_investor import InvestorScraper
+            scraper = InvestorScraper()
+            # Investor scraper already runs analysis internally
+            analyzed_data = scraper.run(start_date=start_dt, end_date=end_dt)
+            
+            if analyzed_data:
+                db_manager.save_news(analyzed_data)
+                new_count = len(analyzed_data)
+                message = f"Berhasil mengambil {new_count} berita dari Investor.id."
+            else:
+                message = "Tidak ada berita baru ditemukan di Investor.id."
+
         else:
             return JSONResponse(
                 status_code=400,

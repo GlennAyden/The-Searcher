@@ -95,6 +95,8 @@ export const ScraperControl = ({ isCollapsed }: { isCollapsed: boolean }) => {
                         >
                             <option value="EmitenNews">EmitenNews</option>
                             <option value="CNBC Indonesia">CNBC Indonesia</option>
+                            <option value="Bisnis.com">Bisnis.com</option>
+                            <option value="Investor.id">Investor.id</option>
                             <option value="IDX (Keterbukaan Informasi)">IDX (Keterbukaan Informasi)</option>
                         </select>
                     </div>

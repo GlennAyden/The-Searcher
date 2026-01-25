@@ -1,65 +1,70 @@
 """
-Additional verification - check consistency between both files
+Complete verification of ticker database.
+(Simplified version - idn_tickers.json is now the single source of truth)
 """
-import json
+import sys
+import os
 
-# Load both files
-with open('backend/data/tickers_idx.json', 'r') as f:
-    tickers_idx = json.load(f)
+# Add project root to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-with open('backend/data/idn_tickers.json', 'r') as f:
-    idn_tickers = json.load(f)
+from modules.ticker_utils import get_ticker_list, get_ticker_map, get_ticker_count
 
-# Verify
-print("=== Ticker Files Verification ===\n")
+def verify_complete():
+    """Complete verification of ticker database."""
+    print("=== Complete Ticker Database Verification ===\n")
+    
+    ticker_list = get_ticker_list()
+    ticker_map = get_ticker_map()
+    
+    # Stats
+    print(f"📊 Total tickers: {get_ticker_count()}")
+    print(f"📊 Unique tickers: {len(set(ticker_list))}")
+    
+    issues = []
+    
+    # Check alphabetical order
+    is_sorted = ticker_list == sorted(ticker_list)
+    if not is_sorted:
+        issues.append("Tickers not sorted alphabetically")
+        for i in range(len(ticker_list) - 1):
+            if ticker_list[i] > ticker_list[i+1]:
+                print(f"❌ First out of order: {ticker_list[i]} > {ticker_list[i+1]} at index {i}")
+                break
+    else:
+        print("✅ Alphabetically sorted")
+    
+    # Check for empty names
+    empty_names = [k for k, v in ticker_map.items() if not v or not v.strip()]
+    if empty_names:
+        issues.append(f"Found {len(empty_names)} tickers with empty names")
+        print(f"❌ Tickers with empty names: {empty_names[:5]}")
+    else:
+        print("✅ All tickers have names")
+    
+    # Check for placeholders
+    placeholders = {k: v for k, v in ticker_map.items() if "VERIFY NAME" in v}
+    if placeholders:
+        print(f"\n⚠️  Found {len(placeholders)} tickers with placeholder names:")
+        for ticker, name in list(placeholders.items())[:5]:
+            print(f"  - {ticker}: {name}")
+        if len(placeholders) > 5:
+            print(f"  ... and {len(placeholders) - 5} more")
+    
+    # Check for unusual ticker formats
+    unusual = [t for t in ticker_list if len(t) < 4 or len(t) > 5 or not t.isupper()]
+    if unusual:
+        print(f"\n⚠️  Unusual ticker formats: {unusual[:10]}")
+    
+    # Summary
+    print("\n=== Summary ===")
+    if not issues:
+        print("✅ All checks passed!")
+        print(f"📊 Total valid tickers: {get_ticker_count()}")
+    else:
+        print("❌ Issues found:")
+        for issue in issues:
+            print(f"  - {issue}")
 
-# Check lengths
-print(f"tickers_idx.json: {len(tickers_idx)} tickers")
-print(f"idn_tickers.json: {len(idn_tickers)} tickers")
-
-# Check for duplicates
-tickers_set = set(tickers_idx)
-print(f"\nUnique tickers in idx: {len(tickers_set)}")
-print(f"Duplicates in idx: {len(tickers_idx) - len(tickers_set)}")
-
-# Check consistency
-idx_set = set(tickers_idx)
-idn_set = set(idn_tickers.keys())
-
-print(f"\n=== Consistency Check ===")
-print(f"Both files match: {idx_set == idn_set}")
-
-if idx_set != idn_set:
-    print(f"In idx but not in idn: {idx_set - idn_set}")
-    print(f"In idn but not in idx: {idn_set - idx_set}")
-
-# Check alphabetical order
-is_sorted = tickers_idx == sorted(tickers_idx)
-print(f"\n=== Alphabetical Order ===")
-print(f"tickers_idx.json sorted: {is_sorted}")
-
-if not is_sorted:
-    print("❌ NOT sorted! Need to sort...")
-    # Find first out of order
-    for i in range(len(tickers_idx) - 1):
-        if tickers_idx[i] > tickers_idx[i+1]:
-            print(f"First out of order: {tickers_idx[i]} > {tickers_idx[i+1]} at index {i}")
-            break
-else:
-    print("✅ Properly sorted!")
-
-# Check for placeholders
-placeholders = {k: v for k, v in idn_tickers.items() if "VERIFY NAME" in v}
-if placeholders:
-    print(f"\n⚠️  Found {len(placeholders)} tickers with placeholder names:")
-    for ticker, name in list(placeholders.items())[:5]:
-        print(f"  - {ticker}: {name}")
-    if len(placeholders) > 5:
-        print(f"  ... and {len(placeholders) - 5} more")
-
-print("\n=== Summary ===")
-if idx_set == idn_set and is_sorted and len(tickers_idx) == len(tickers_set):
-    print("✅ All checks passed!")
-    print(f"📊 Total valid tickers: {len(tickers_idx)}")
-else:
-    print("❌ Some issues found, please review above")
+if __name__ == "__main__":
+    verify_complete()

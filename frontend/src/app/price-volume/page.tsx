@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Search, TrendingUp, Loader2, Database, TrendingDown, Minus, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PriceVolumeChart } from '@/components/charts/PriceVolumeChart';
 import { UnusualVolumeList } from '@/components/charts/UnusualVolumeList';
-import { priceVolumeApi, PriceVolumeResponse, UnusualVolumeEvent, SpikeMarker, MarketCapResponse, RefreshAllResponse } from '@/services/api/priceVolume';
+import { priceVolumeApi, PriceVolumeResponse, UnusualVolumeEvent, SpikeMarker, MarketCapResponse, RefreshAllResponse, HKAnalysisResponse } from '@/services/api/priceVolume';
 import { api } from '@/services/api';
 
 
@@ -31,6 +31,10 @@ export default function PriceVolumePage() {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [refreshResult, setRefreshResult] = useState<RefreshAllResponse | null>(null);
     const [showRefreshResult, setShowRefreshResult] = useState(false);
+
+    // HK Analysis state
+    const [hkAnalysis, setHkAnalysis] = useState<HKAnalysisResponse | null>(null);
+    const [isLoadingHK, setIsLoadingHK] = useState(false);
 
     // Handle refresh all tickers
     const handleRefreshAll = useCallback(async () => {
@@ -98,6 +102,18 @@ export default function PriceVolumePage() {
             } catch (err) {
                 console.error('Failed to fetch market cap:', err);
                 setMarketCapData(null);
+            }
+
+            // Fetch HK Analysis
+            try {
+                setIsLoadingHK(true);
+                const hkResponse = await priceVolumeApi.getHKAnalysis(tickerSymbol);
+                setHkAnalysis(hkResponse);
+            } catch (err) {
+                console.error('Failed to fetch HK analysis:', err);
+                setHkAnalysis(null);
+            } finally {
+                setIsLoadingHK(false);
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to fetch data');
@@ -206,8 +222,8 @@ export default function PriceVolumePage() {
             {/* Refresh Result Notification */}
             {showRefreshResult && refreshResult && (
                 <div className={`flex items-center justify-between p-3 rounded-xl border ${refreshResult.errors.length > 0
-                        ? 'bg-amber-500/10 border-amber-500/20'
-                        : 'bg-emerald-500/10 border-emerald-500/20'
+                    ? 'bg-amber-500/10 border-amber-500/20'
+                    : 'bg-emerald-500/10 border-emerald-500/20'
                     }`}>
                     <div className="flex items-center gap-3">
                         {refreshResult.errors.length > 0 ? (
@@ -400,6 +416,122 @@ export default function PriceVolumePage() {
                     </div>
                 </div>
             ) : null}
+
+            {/* HK Methodology Analysis Panel */}
+            {chartData && (hkAnalysis || isLoadingHK) && (
+                <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 flex-shrink-0">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                            <span className="text-lg">📊</span>
+                            <h3 className="text-base font-semibold text-zinc-100">HK Methodology Analysis</h3>
+                        </div>
+                        {hkAnalysis && (
+                            <span className="text-xs text-zinc-500">
+                                Spike: {hkAnalysis.spike_date} ({hkAnalysis.spike_source === 'auto_detected' ? 'auto' : 'manual'})
+                            </span>
+                        )}
+                    </div>
+
+                    {isLoadingHK ? (
+                        <div className="flex items-center justify-center py-8">
+                            <Loader2 className="w-6 h-6 text-emerald-500 animate-spin mr-2" />
+                            <span className="text-zinc-400">Analyzing smart money patterns...</span>
+                        </div>
+                    ) : hkAnalysis ? (
+                        <div className="grid grid-cols-2 gap-4">
+                            {/* Volume Asymmetry */}
+                            <div className="bg-zinc-800/50 rounded-lg p-4">
+                                <h4 className="text-sm font-semibold text-zinc-400 uppercase mb-3 flex items-center gap-2">
+                                    Volume Asymmetry (Post-Spike)
+                                </h4>
+                                <div className="space-y-2 text-sm">
+                                    <div className="flex justify-between">
+                                        <span className="text-zinc-500">Vol on UP days</span>
+                                        <span className="text-emerald-400">
+                                            {(hkAnalysis.volume_asymmetry.volume_up_total / 1000000).toFixed(1)}M
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-zinc-500">Vol on DOWN days</span>
+                                        <span className="text-red-400">
+                                            {(hkAnalysis.volume_asymmetry.volume_down_total / 1000000).toFixed(1)}M
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-zinc-500">Asymmetry Ratio</span>
+                                        <span className={`font-semibold ${hkAnalysis.volume_asymmetry.asymmetry_ratio >= 3 ? 'text-emerald-400' :
+                                                hkAnalysis.volume_asymmetry.asymmetry_ratio >= 1 ? 'text-amber-400' : 'text-red-400'
+                                            }`}>
+                                            {hkAnalysis.volume_asymmetry.asymmetry_ratio.toFixed(1)}:1
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center pt-2 border-t border-zinc-700">
+                                        <span className="text-zinc-500">Bandar Status</span>
+                                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${hkAnalysis.volume_asymmetry.verdict === 'STRONG_HOLDING' ? 'bg-emerald-500/20 text-emerald-400' :
+                                                hkAnalysis.volume_asymmetry.verdict === 'HOLDING' ? 'bg-cyan-500/20 text-cyan-400' :
+                                                    hkAnalysis.volume_asymmetry.verdict === 'DISTRIBUTING' ? 'bg-red-500/20 text-red-400' :
+                                                        'bg-zinc-500/20 text-zinc-400'
+                                            }`}>
+                                            {hkAnalysis.volume_asymmetry.verdict}
+                                        </span>
+                                    </div>
+                                    <div className="text-xs text-zinc-600 text-center pt-1">
+                                        {hkAnalysis.volume_asymmetry.days_analyzed} days analyzed
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Pre-Spike Accumulation */}
+                            <div className="bg-zinc-800/50 rounded-lg p-4">
+                                <h4 className="text-sm font-semibold text-zinc-400 uppercase mb-3 flex items-center gap-2">
+                                    Pre-Spike Accumulation
+                                </h4>
+                                <div className="space-y-2 text-sm">
+                                    <div className="flex justify-between">
+                                        <span className="text-zinc-500">Period</span>
+                                        <span className="text-zinc-300 text-xs">
+                                            {hkAnalysis.accumulation.period_start?.slice(5) || 'N/A'} → {hkAnalysis.accumulation.period_end?.slice(5) || 'N/A'}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-zinc-500">Duration</span>
+                                        <span className="text-zinc-300">{hkAnalysis.accumulation.accumulation_days} days</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-zinc-500">Total Volume</span>
+                                        <span className="text-cyan-400">
+                                            {(hkAnalysis.accumulation.total_volume / 1000000).toFixed(1)}M
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-zinc-500">Volume Trend</span>
+                                        <span className={
+                                            hkAnalysis.accumulation.volume_trend === 'INCREASING' ? 'text-emerald-400' :
+                                                hkAnalysis.accumulation.volume_trend === 'DECREASING' ? 'text-red-400' : 'text-amber-400'
+                                        }>
+                                            {hkAnalysis.accumulation.volume_trend}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-zinc-500">Up/Down Days</span>
+                                        <span className="text-zinc-300">
+                                            <span className="text-emerald-400">{hkAnalysis.accumulation.up_days}</span>
+                                            {' / '}
+                                            <span className="text-red-400">{hkAnalysis.accumulation.down_days}</span>
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-zinc-500">Net Movement</span>
+                                        <span className={hkAnalysis.accumulation.net_movement_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                                            {hkAnalysis.accumulation.net_movement_pct > 0 ? '+' : ''}{hkAnalysis.accumulation.net_movement_pct.toFixed(2)}%
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ) : null}
+                </div>
+            )}
 
             {/* Unusual Volume List - Always visible */}
             <div className="flex-shrink-0">

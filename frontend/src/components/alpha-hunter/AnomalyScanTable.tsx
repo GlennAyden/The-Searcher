@@ -50,7 +50,12 @@ interface ScanResponse {
     message?: string;
 }
 
-export default function AnomalyScanTable({ onAddToWatchlist }: { onAddToWatchlist: () => void }) {
+interface AnomalyScanTableProps {
+    onAddToWatchlist: () => void;
+    onAddToInvestigation?: (signal: FlowSignal) => void;
+}
+
+export default function AnomalyScanTable({ onAddToWatchlist, onAddToInvestigation }: AnomalyScanTableProps) {
     const [results, setResults] = useState<FlowSignal[]>([]);
     const [stats, setStats] = useState<ScanStats | null>(null);
     const [totalSignals, setTotalSignals] = useState(0);
@@ -62,6 +67,11 @@ export default function AnomalyScanTable({ onAddToWatchlist }: { onAddToWatchlis
     const [strengthFilter, setStrengthFilter] = useState("all");
     const [showLegend, setShowLegend] = useState(false);
 
+    // Price filter states
+    const [priceValue, setPriceValue] = useState("");
+    const [priceOperator, setPriceOperator] = useState("lt");
+    const [totalMatches, setTotalMatches] = useState(0);
+
     // Auto scan on mount
     useEffect(() => {
         runScan();
@@ -71,10 +81,15 @@ export default function AnomalyScanTable({ onAddToWatchlist }: { onAddToWatchlis
         setIsLoading(true);
         setError(null);
         try {
-            let url = `http://localhost:8000/api/alpha-hunter/stage1/scan?min_score=${minScore}&min_flow=0&max_price_change=20`;
+            let url = `http://localhost:8000/api/alpha-hunter/stage1/scan?min_score=${minScore}&min_flow=0&max_price_change=20&max_results=20`;
 
             if (strengthFilter !== "all") {
                 url += `&strength_filter=${strengthFilter}`;
+            }
+
+            // Add price filter if value is set
+            if (priceValue && priceValue.trim() !== "") {
+                url += `&price_value=${priceValue}&price_operator=${priceOperator}`;
             }
 
             const res = await fetch(url);
@@ -87,6 +102,7 @@ export default function AnomalyScanTable({ onAddToWatchlist }: { onAddToWatchlis
                 setResults(data.signals || []);
                 setStats(data.stats || null);
                 setTotalSignals(data.total_signals || 0);
+                setTotalMatches((data as any).total_matches || data.filtered_count || 0);
             }
         } catch (err) {
             console.error(err);
@@ -118,7 +134,13 @@ export default function AnomalyScanTable({ onAddToWatchlist }: { onAddToWatchlis
                     }
                 })
             });
-            onAddToWatchlist();
+
+            // Call the new investigation callback if provided
+            if (onAddToInvestigation) {
+                onAddToInvestigation(item);
+            } else {
+                onAddToWatchlist();
+            }
         } catch (err) {
             console.error("Failed to add to watchlist", err);
         }
@@ -211,6 +233,30 @@ export default function AnomalyScanTable({ onAddToWatchlist }: { onAddToWatchlis
                                 <SelectItem value="MODERATE">Moderate</SelectItem>
                             </SelectContent>
                         </Select>
+
+                        {/* Price Filter */}
+                        <div className="flex items-center gap-1">
+                            <span className="text-xs text-slate-500">Price</span>
+                            <Select value={priceOperator} onValueChange={setPriceOperator}>
+                                <SelectTrigger className="w-[70px] bg-slate-800 border-slate-700">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="bg-slate-800 border-slate-700">
+                                    <SelectItem value="lt">&lt;</SelectItem>
+                                    <SelectItem value="lte">≤</SelectItem>
+                                    <SelectItem value="gt">&gt;</SelectItem>
+                                    <SelectItem value="gte">≥</SelectItem>
+                                    <SelectItem value="eq">=</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <input
+                                type="number"
+                                value={priceValue}
+                                onChange={(e) => setPriceValue(e.target.value)}
+                                placeholder="e.g. 500"
+                                className="w-[80px] bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
+                            />
+                        </div>
 
                         <Button onClick={runScan} disabled={isLoading} variant="outline" className="border-slate-700">
                             <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -353,6 +399,7 @@ export default function AnomalyScanTable({ onAddToWatchlist }: { onAddToWatchlis
                             <TableRow className="border-slate-800 hover:bg-slate-900">
                                 <TableHead className="w-[60px] text-slate-400">#</TableHead>
                                 <TableHead className="text-slate-400">Ticker</TableHead>
+                                <TableHead className="text-slate-400">Price</TableHead>
                                 <TableHead className="text-slate-400">Score</TableHead>
                                 <TableHead className="text-slate-400">Signal</TableHead>
                                 <TableHead className="text-slate-400">Conviction</TableHead>
@@ -367,7 +414,7 @@ export default function AnomalyScanTable({ onAddToWatchlist }: { onAddToWatchlis
                         <TableBody>
                             {results.length === 0 && !isLoading && !error && (
                                 <TableRow>
-                                    <TableCell colSpan={11} className="h-32 text-center text-slate-500">
+                                    <TableCell colSpan={12} className="h-32 text-center text-slate-500">
                                         No signals found with current filters. Try lowering min_score.
                                     </TableCell>
                                 </TableRow>
@@ -375,7 +422,7 @@ export default function AnomalyScanTable({ onAddToWatchlist }: { onAddToWatchlis
 
                             {isLoading && (
                                 <TableRow>
-                                    <TableCell colSpan={11} className="h-32 text-center text-slate-500">
+                                    <TableCell colSpan={12} className="h-32 text-center text-slate-500">
                                         <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
                                         Scanning market for flow signals...
                                     </TableCell>
@@ -392,6 +439,11 @@ export default function AnomalyScanTable({ onAddToWatchlist }: { onAddToWatchlis
                                             {item.pinky && <span title="Pinky Signal">🩷</span>}
                                             {item.crossing && <span title="MA Crossing">🤏</span>}
                                         </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <span className="text-slate-200 font-medium">
+                                            {item.price ? `Rp ${item.price.toLocaleString()}` : '-'}
+                                        </span>
                                     </TableCell>
                                     <TableCell>
                                         <div className={`

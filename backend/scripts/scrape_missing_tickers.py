@@ -1,12 +1,18 @@
 """
 Script to scrape and collect missing tickers from TradingView.
-This is a temporary script to extract ticker data for IDX stocks.
+This script compares TradingView data with the local ticker database.
 """
 import requests
 from bs4 import BeautifulSoup
 import json
 import re
-from time import sleep
+import sys
+import os
+
+# Add project root to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from modules.ticker_utils import get_ticker_list, get_ticker_set
 
 def scrape_tradingview_tickers():
     """Scrape all Indonesian stock tickers from TradingView"""
@@ -50,20 +56,17 @@ def scrape_tradingview_tickers():
     return tickers_data
 
 def compare_with_existing(tradingview_tickers):
-    """Compare TradingView tickers with existing ticker list"""
+    """Compare TradingView tickers with existing ticker database"""
     
-    # Load existing tickers
-    with open('backend/data/tickers_idx.json', 'r') as f:
-        existing_tickers = json.load(f)
-    
-    existing_set = set(existing_tickers)
+    # Use ticker_utils instead of loading file directly
+    existing_set = get_ticker_set()
     tradingview_set = set(tradingview_tickers.keys())
     
     missing_tickers = tradingview_set - existing_set
     extra_tickers = existing_set - tradingview_set
     
     print(f"\n📊 Statistics:")
-    print(f"- Existing tickers: {len(existing_tickers)}")
+    print(f"- Existing tickers: {len(existing_set)}")
     print(f"- TradingView tickers: {len(tradingview_tickers)}")
     print(f"- Missing tickers: {len(missing_tickers)}")
     print(f"- Extra (not in TradingView): {len(extra_tickers)}")
@@ -85,10 +88,11 @@ if __name__ == "__main__":
         comparison = compare_with_existing(tradingview_tickers)
         
         # Save results
-        with open('backend/data/missing_tickers_analysis.json', 'w') as f:
+        output_file = os.path.join(os.path.dirname(__file__), '..', 'data', 'missing_tickers_analysis.json')
+        with open(output_file, 'w') as f:
             json.dump(comparison, f, indent=2)
         
-        print(f"\n💾 Analysis saved to: backend/data/missing_tickers_analysis.json")
+        print(f"\n💾 Analysis saved to: {output_file}")
         
         if comparison['missing']:
             print(f"\n📝 Sample missing tickers (first 10):")

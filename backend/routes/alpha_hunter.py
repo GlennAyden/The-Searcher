@@ -36,7 +36,10 @@ async def stage1_flow_scanner(
     pattern_filter: Optional[List[str]] = Query(
         None,
         description="Required patterns (at least one): CONSISTENT_ACCUMULATION, ACCELERATING_BUILDUP, TREND_REVERSAL, SIDEWAYS_ACCUMULATION"
-    )
+    ),
+    price_value: Optional[float] = Query(None, description="Price threshold value for filtering"),
+    price_operator: Optional[str] = Query(None, description="Price comparison: gt (>), gte (>=), lt (<), lte (<=), eq (=)"),
+    max_results: int = Query(20, ge=1, le=100, description="Maximum number of results to return")
 ):
     """
     [ALPHA HUNTER STAGE 1] Flow-Based Screening using NeoBDM Hot Signals.
@@ -111,6 +114,20 @@ async def stage1_flow_scanner(
             if abs(price_change) > max_price_change:
                 continue
             
+            # Filter 3b: Price value filter with operator
+            signal_price = signal.get('price', 0) or 0
+            if price_value is not None and price_operator:
+                if price_operator == 'gt' and not (signal_price > price_value):
+                    continue
+                elif price_operator == 'gte' and not (signal_price >= price_value):
+                    continue
+                elif price_operator == 'lt' and not (signal_price < price_value):
+                    continue
+                elif price_operator == 'lte' and not (signal_price <= price_value):
+                    continue
+                elif price_operator == 'eq' and not (signal_price == price_value):
+                    continue
+            
             # Filter 4: Strength filter (if specified)
             if strength_filter and signal.get('signal_strength') != strength_filter:
                 continue
@@ -161,6 +178,12 @@ async def stage1_flow_scanner(
         # Sort by signal score descending
         filtered_signals.sort(key=lambda x: x.get('signal_score', 0), reverse=True)
         
+        # Store total filtered count before limiting
+        total_filtered = len(filtered_signals)
+        
+        # Apply max_results limit
+        filtered_signals = filtered_signals[:max_results]
+        
         # Statistics
         conviction_counts = {
             'VERY_HIGH': sum(1 for s in filtered_signals if s.get('conviction') == 'VERY_HIGH'),
@@ -179,6 +202,7 @@ async def stage1_flow_scanner(
         return {
             "total_signals": len(hot_signals),
             "filtered_count": len(filtered_signals),
+            "total_matches": total_filtered,
             "signals": filtered_signals,
             "stats": {
                 "by_conviction": conviction_counts,
@@ -191,7 +215,10 @@ async def stage1_flow_scanner(
                 "min_flow": min_flow,
                 "max_price_change": max_price_change,
                 "strength_filter": strength_filter,
-                "pattern_filter": pattern_filter
+                "pattern_filter": pattern_filter,
+                "price_value": price_value,
+                "price_operator": price_operator,
+                "max_results": max_results
             }
         }
         
@@ -231,6 +258,39 @@ async def get_stage2_vpa(
             post_spike_days=post_spike_days,
             min_ratio=min_ratio,
             persist_tracking=persist_tracking
+        )
+        if result.get("error"):
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/stage2/visualization/{ticker}")
+async def get_stage2_visualization(
+    ticker: str,
+    selling_climax_date: Optional[str] = Query(
+        None, 
+        description="Override selling climax date (YYYY-MM-DD)"
+    )
+):
+    """
+    Stage 2 VPA Visualization Data.
+    
+    Returns:
+    - price_chart: OHLCV + MA5/10/20 + event markers
+    - volume_chart: Volume bars + MA20 + spike labels
+    - money_flow_chart: Positive/negative flow bars + price overlay
+    - resistance_lines: Horizontal lines from volume spike+UP until broken
+    - recommendation: Trading action based on current state
+    """
+    analyzer = AlphaHunterStage2VPA()
+    try:
+        result = analyzer.get_stage2_visualization_data(
+            ticker=ticker,
+            selling_climax_date=selling_climax_date
         )
         if result.get("error"):
             raise HTTPException(status_code=404, detail=result["error"])
