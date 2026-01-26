@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { useAlphaHunter } from "../AlphaHunterContext";
 import StageCard from "./StageCard";
 import { PriceLadder, ScrapingQueueItem } from "../types";
+import { API_BASE_URL } from "@/services/api/base";
 
 interface Stage3FlowCardProps {
     ticker: string;
@@ -42,10 +43,7 @@ export default function Stage3FlowCard({ ticker }: Stage3FlowCardProps) {
     const stage2 = investigation?.stage2;
     const stage3 = investigation?.stage3;
     const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
-    const [isScraping, setIsScraping] = useState(false);
     const [scrapingPaused, setScrapingPaused] = useState(false);
-
-    if (!investigation) return null;
 
     // Check if Stage 2 is complete
     const canStart = canProceedToStage(ticker, 3);
@@ -143,7 +141,6 @@ export default function Stage3FlowCard({ ticker }: Stage3FlowCardProps) {
         if (selectedLadders.length === 0) return;
 
         updateStageStatus(ticker, 3, 'loading');
-        setIsScraping(true);
         setScrapingPaused(false);
 
         // Initialize queue
@@ -161,7 +158,6 @@ export default function Stage3FlowCard({ ticker }: Stage3FlowCardProps) {
         for (let i = 0; i < selectedLadders.length; i++) {
             if (scrapingPaused) break;
 
-            const ladder = selectedLadders[i];
             const queue = [...initialQueue];
 
             // Update current item to scraping
@@ -198,7 +194,7 @@ export default function Stage3FlowCard({ ticker }: Stage3FlowCardProps) {
 
         // Fetch flow analysis after scraping
         try {
-            const response = await fetch(`http://localhost:8000/api/alpha-hunter/flow/${ticker}?days=7`);
+            const response = await fetch(`${API_BASE_URL}/api/alpha-hunter/flow/${ticker}?days=7`);
             const data = await response.json();
 
             if (data.data_available) {
@@ -223,7 +219,6 @@ export default function Stage3FlowCard({ ticker }: Stage3FlowCardProps) {
             updateStageStatus(ticker, 3, 'error', String(error));
         }
 
-        setIsScraping(false);
     };
 
     // Toggle pause
@@ -233,7 +228,6 @@ export default function Stage3FlowCard({ ticker }: Stage3FlowCardProps) {
 
     // Cancel scraping
     const cancelScraping = () => {
-        setIsScraping(false);
         setScrapingPaused(false);
         updateStageStatus(ticker, 3, 'idle');
         updateScrapingQueue(ticker, []);
@@ -420,7 +414,7 @@ export default function Stage3FlowCard({ ticker }: Stage3FlowCardProps) {
                     <div className="space-y-2">
                         <div className="text-sm text-slate-400 mb-2">Scraping Queue:</div>
 
-                        {queue.map((item, idx) => (
+                        {queue.map((item) => (
                             <div
                                 key={item.ladder.id}
                                 className={cn(
@@ -687,6 +681,8 @@ export default function Stage3FlowCard({ ticker }: Stage3FlowCardProps) {
             </div>
         );
     };
+
+    if (!investigation || !stage3) return null;
 
     return (
         <StageCard

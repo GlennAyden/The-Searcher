@@ -4,7 +4,7 @@
  * Handles API calls for OHLCV candlestick data and moving averages.
  */
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { API_BASE_URL } from './base';
 
 export interface OHLCVRecord {
     time: string;
@@ -50,7 +50,7 @@ export const priceVolumeApi = {
      */
     getOHLCV: async (ticker: string, months: number = 9): Promise<PriceVolumeResponse> => {
         const response = await fetch(
-            `${BASE_URL}/api/price-volume/${ticker}?months=${months}`
+            `${API_BASE_URL}/api/price-volume/${ticker}?months=${months}`
         );
 
         if (!response.ok) {
@@ -69,7 +69,7 @@ export const priceVolumeApi = {
      */
     checkDataExists: async (ticker: string): Promise<TickerDataStatus> => {
         const response = await fetch(
-            `${BASE_URL}/api/price-volume/${ticker}/exists`
+            `${API_BASE_URL}/api/price-volume/${ticker}/exists`
         );
 
         if (!response.ok) {
@@ -99,7 +99,7 @@ export const priceVolumeApi = {
         });
 
         const response = await fetch(
-            `${BASE_URL}/api/price-volume/unusual/scan?${params}`
+            `${API_BASE_URL}/api/price-volume/unusual/scan?${params}`
         );
 
         if (!response.ok) {
@@ -129,7 +129,7 @@ export const priceVolumeApi = {
         });
 
         const response = await fetch(
-            `${BASE_URL}/api/price-volume/${ticker}/spike-markers?${params}`
+            `${API_BASE_URL}/api/price-volume/${ticker}/spike-markers?${params}`
         );
 
         if (!response.ok) {
@@ -153,7 +153,7 @@ export const priceVolumeApi = {
         });
 
         const response = await fetch(
-            `${BASE_URL}/api/price-volume/${ticker}/market-cap?${params}`
+            `${API_BASE_URL}/api/price-volume/${ticker}/market-cap?${params}`
         );
 
         if (!response.ok) {
@@ -171,7 +171,7 @@ export const priceVolumeApi = {
      */
     refreshAllTickers: async (): Promise<RefreshAllResponse> => {
         const response = await fetch(
-            `${BASE_URL}/api/price-volume/refresh-all`,
+            `${API_BASE_URL}/api/price-volume/refresh-all`,
             { method: 'POST' }
         );
 
@@ -196,7 +196,7 @@ export const priceVolumeApi = {
             params.set('spike_date', spikeDate);
         }
 
-        const url = `${BASE_URL}/api/price-volume/${ticker}/hk-analysis${params.toString() ? '?' + params.toString() : ''}`;
+        const url = `${API_BASE_URL}/api/price-volume/${ticker}/hk-analysis${params.toString() ? '?' + params.toString() : ''}`;
         const response = await fetch(url);
 
         if (!response.ok) {

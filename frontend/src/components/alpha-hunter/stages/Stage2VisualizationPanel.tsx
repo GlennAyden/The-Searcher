@@ -6,12 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import {
     RefreshCw,
     AlertCircle,
-    TrendingUp,
     TrendingDown,
     Target,
     Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { API_BASE_URL } from "@/services/api/base";
 
 interface Stage2VisualizationProps {
     ticker: string;
@@ -38,8 +38,8 @@ interface VisualizationData {
         ma10: Array<{ date: string; value: number | null }>;
         ma20: Array<{ date: string; value: number | null }>;
         markers: {
-            selling_climax: any;
-            volume_spikes: Array<any>;
+            selling_climax: Record<string, unknown> | null;
+            volume_spikes: Array<Record<string, unknown>>;
         };
     };
     volume_chart: {
@@ -79,9 +79,7 @@ interface VisualizationData {
 // Custom Candlestick Component
 const Candlestick = ({
     x,
-    y,
     width,
-    height,
     open,
     close,
     high,
@@ -91,9 +89,7 @@ const Candlestick = ({
     chartHeight,
 }: {
     x: number;
-    y: number;
     width: number;
-    height: number;
     open: number;
     close: number;
     high: number;
@@ -154,7 +150,7 @@ export default function Stage2VisualizationPanel({ ticker }: Stage2Visualization
 
         try {
             const response = await fetch(
-                `http://localhost:8000/api/alpha-hunter/stage2/visualization/${ticker}`
+                `${API_BASE_URL}/api/alpha-hunter/stage2/visualization/${ticker}`
             );
 
             if (!response.ok) {
@@ -391,9 +387,9 @@ export default function Stage2VisualizationPanel({ ticker }: Stage2Visualization
                                 <Candlestick
                                     key={i}
                                     x={i * candleWidth}
-                                    y={0}
+                                    // y={0} - removed, not in Candlestick props
                                     width={candleWidth}
-                                    height={PRICE_CHART_HEIGHT}
+                                    // height={PRICE_CHART_HEIGHT} - removed, not in Candlestick props
                                     open={d.open}
                                     close={d.close}
                                     high={d.high}
@@ -501,7 +497,7 @@ export default function Stage2VisualizationPanel({ ticker }: Stage2Visualization
 
                         {/* X-Axis Labels */}
                         <g transform={`translate(50, ${PRICE_CHART_HEIGHT + VOLUME_CHART_HEIGHT + 25})`}>
-                            {chartData.filter((_, i) => i % Math.ceil(chartData.length / 10) === 0).map((d, i, arr) => {
+                            {chartData.filter((_, i) => i % Math.ceil(chartData.length / 10) === 0).map((d, i) => {
                                 const originalIndex = chartData.indexOf(d);
                                 return (
                                     <text

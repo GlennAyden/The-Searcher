@@ -68,7 +68,7 @@ export const disclosuresApi = {
     /**
      * Open local file with system default application
      */
-    openFile: async (filePath: string): Promise<any> => {
+    openFile: async (filePath: string): Promise<Record<string, unknown>> => {
         const response = await fetch(`${API_BASE_URL}/api/open-file`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -81,7 +81,7 @@ export const disclosuresApi = {
     /**
      * Sync disclosure database with filesystem
      */
-    syncDisclosures: async (): Promise<any> => {
+    syncDisclosures: async (): Promise<Record<string, unknown>> => {
         const response = await fetch(`${API_BASE_URL}/api/sync-disclosures`, {
             method: 'POST'
         });

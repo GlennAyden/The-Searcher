@@ -1,4 +1,4 @@
-import { RagChatInterface } from '@/components/rag-chat/rag-chat-interface';
+import { RagChatInterface } from '@/features/rag-chat';
 
 export default function RagChatPage() {
     return (

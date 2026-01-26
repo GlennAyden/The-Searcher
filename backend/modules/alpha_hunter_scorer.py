@@ -4,6 +4,7 @@ Responsible for detecting volume anomalies (Tukang Parkir) and calculating convi
 """
 import pandas as pd
 import numpy as np
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from modules.database import DatabaseManager
@@ -12,7 +13,15 @@ class AlphaHunterScorer:
     def __init__(self):
         self.db = DatabaseManager()
         
-    def scan_market(self, min_score: int = 60, sector: str = None, mcap_min: float = None) -> List[Dict]:
+    def scan_market(
+        self,
+        min_score: int = 60,
+        sector: str = None,
+        mcap_min: float = None,
+        max_tickers: Optional[int] = 100,
+        max_runtime_sec: Optional[int] = 20,
+        use_market_cap: bool = False
+    ) -> List[Dict]:
         """
         Scan market for anomaly signals.
         Returns list of scored tickers.
@@ -20,12 +29,19 @@ class AlphaHunterScorer:
         # 1. Get list of tickers to scan
         #Ideally we want all tickers, but for performance maybe stick to NeoBDM tickers first
         tickers = self.db.get_neobdm_tickers()
+        if max_tickers and max_tickers > 0:
+            tickers = tickers[:max_tickers]
+        
+        start_time = time.monotonic()
         
         results = []
         for ticker in tickers:
             # Skip if filtered by sector/mcap (TODO: implement filters)
             
-            score_data = self.calculate_score(ticker)
+            if max_runtime_sec and (time.monotonic() - start_time) > max_runtime_sec:
+                break
+            
+            score_data = self.calculate_score(ticker, use_market_cap=use_market_cap)
             if score_data['total_score'] >= min_score:
                 results.append(score_data)
                 
@@ -33,7 +49,7 @@ class AlphaHunterScorer:
         results.sort(key=lambda x: x['total_score'], reverse=True)
         return results
 
-    def calculate_score(self, ticker: str) -> Dict:
+    def calculate_score(self, ticker: str, use_market_cap: bool = True) -> Dict:
         """
         Calculate Alpha Hunter score (0-100) for a single ticker.
         """
@@ -131,33 +147,34 @@ class AlphaHunterScorer:
         flow_score = 0
         flow_impact = 0.0
         
-        try:
-            # Check latest history record
-            history = self.db.get_neobdm_history(ticker, limit=1)
-            if history:
-                latest = history[0]
-                # Calculate impact if not present (need market cap)
-                flow_d0 = latest.get('flow_d0', 0)
-                
-                from data_provider import data_provider
-                mcap = data_provider.get_market_cap(ticker)
-                
-                if mcap and mcap > 0:
-                    flow_impact = (flow_d0 / mcap) * 100
+        if use_market_cap:
+            try:
+                # Check latest history record
+                history = self.db.get_neobdm_history(ticker, limit=1)
+                if history:
+                    latest = history[0]
+                    # Calculate impact if not present (need market cap)
+                    flow_d0 = latest.get('flow_d0', 0)
                     
-                    if abs(flow_impact) >= 0.3:
-                         flow_score = 30
-                    elif abs(flow_impact) >= 0.1:
-                         flow_score = 20
-                    elif abs(flow_impact) >= 0.05:
-                         flow_score = 10
-                         
-                    # Bonus: Must be positive flow for max score
-                    if flow_impact < 0:
-                        flow_score = flow_score // 2 # Penalty for big outflow
+                    from data_provider import data_provider
+                    mcap = data_provider.get_market_cap(ticker)
+                    
+                    if mcap and mcap > 0:
+                        flow_impact = (flow_d0 / mcap) * 100
                         
-        except Exception as e:
-            print(f"Error calcing flow impact for {ticker}: {e}")
+                        if abs(flow_impact) >= 0.3:
+                             flow_score = 30
+                        elif abs(flow_impact) >= 0.1:
+                             flow_score = 20
+                        elif abs(flow_impact) >= 0.05:
+                             flow_score = 10
+                             
+                        # Bonus: Must be positive flow for max score
+                        if flow_impact < 0:
+                            flow_score = flow_score // 2 # Penalty for big outflow
+                            
+            except Exception as e:
+                print(f"Error calcing flow impact for {ticker}: {e}")
             
         score += flow_score
         breakdown['flow_score'] = flow_score

@@ -12,13 +12,12 @@ import {
     FileText,
     SkipForward,
     Target,
-    Shield,
-    TrendingDown,
     Zap
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAlphaHunter } from "../AlphaHunterContext";
 import StageCard from "./StageCard";
+import { API_BASE_URL } from "@/services/api/base";
 
 interface Stage4SupplyCardProps {
     ticker: string;
@@ -30,20 +29,15 @@ export default function Stage4SupplyCard({ ticker }: Stage4SupplyCardProps) {
         updateStageStatus,
         updateStage4Data,
         setManualDataInput,
-        skipStage4,
-        canProceedToStage
+        skipStage4
     } = useAlphaHunter();
 
     const investigation = investigations[ticker];
     const stage3 = investigation?.stage3;
     const stage4 = investigation?.stage4;
-    const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [parseError, setParseError] = useState<string | null>(null);
 
     if (!investigation) return null;
-
-    // Check if Stage 3 is complete
-    const canStart = canProceedToStage(ticker, 4);
 
     // Handle paste from clipboard
     const handlePaste = async () => {
@@ -69,11 +63,10 @@ export default function Stage4SupplyCard({ ticker }: Stage4SupplyCardProps) {
             return;
         }
 
-        setIsAnalyzing(true);
         updateStageStatus(ticker, 4, 'loading');
 
         try {
-            const response = await fetch('http://localhost:8000/api/alpha-hunter/parse-done-detail', {
+            const response = await fetch(`${API_BASE_URL}/api/alpha-hunter/parse-done-detail`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -156,8 +149,6 @@ export default function Stage4SupplyCard({ ticker }: Stage4SupplyCardProps) {
             console.error("Analysis failed:", error);
             setParseError(String(error));
             updateStageStatus(ticker, 4, 'error', String(error));
-        } finally {
-            setIsAnalyzing(false);
         }
     };
 

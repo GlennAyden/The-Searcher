@@ -28,33 +28,26 @@ interface AlphaHunterProviderProps {
 // Provider component
 export function AlphaHunterProvider({ children }: AlphaHunterProviderProps) {
     const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
-    const [investigations, setInvestigations] = useState<InvestigationsMap>({});
-    const [isLoaded, setIsLoaded] = useState(false);
-
-    // Load from localStorage on mount
-    useEffect(() => {
+    const [investigations, setInvestigations] = useState<InvestigationsMap>(() => {
+        if (typeof window === 'undefined') return {};
         try {
             const saved = localStorage.getItem(STORAGE_KEY);
             if (saved) {
-                const parsed = JSON.parse(saved);
-                setInvestigations(parsed);
+                return JSON.parse(saved) as InvestigationsMap;
             }
         } catch (err) {
             console.error('Failed to load investigations from localStorage:', err);
         }
-        setIsLoaded(true);
-    }, []);
-
+        return {};
+    });
     // Save to localStorage on change
     useEffect(() => {
-        if (isLoaded) {
-            try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(investigations));
-            } catch (err) {
-                console.error('Failed to save investigations to localStorage:', err);
-            }
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(investigations));
+        } catch (err) {
+            console.error('Failed to save investigations to localStorage:', err);
         }
-    }, [investigations, isLoaded]);
+    }, [investigations]);
 
     // Navigation
     const selectTicker = useCallback((ticker: string | null) => {
@@ -356,15 +349,6 @@ export function AlphaHunterProvider({ children }: AlphaHunterProviderProps) {
         getCurrentStageStatus,
         canProceedToStage,
     };
-
-    // Don't render until loaded from localStorage
-    if (!isLoaded) {
-        return (
-            <div className="flex items-center justify-center h-screen bg-slate-950">
-                <div className="animate-pulse text-slate-500">Loading...</div>
-            </div>
-        );
-    }
 
     return (
         <AlphaHunterContext.Provider value={value}>

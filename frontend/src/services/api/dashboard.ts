@@ -14,7 +14,7 @@ export interface DashboardStats {
     market_mood: string;
     correlation: number;
     news_volume: number;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 export interface SentimentDataPoint {

@@ -1,104 +1,24 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { SentimentChart } from '@/components/dashboard/sentiment-chart';
-import { TickerCloud } from '@/components/dashboard/ticker-cloud';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, Users, Newspaper, Zap, Calendar as CalendarIcon, Search, HelpCircle } from 'lucide-react';
-import { api } from '@/services/api';
+import { SentimentChart } from '@/features/dashboard/components/sentiment-chart';
+import { TickerCloud } from '@/features/dashboard/components/ticker-cloud';
+import { MetricCard } from '@/features/dashboard/components/MetricCard';
+import { TrendingUp, Users, Newspaper, Zap } from 'lucide-react';
 import { useFilter } from '@/context/filter-context';
-import { Line, LineChart, ResponsiveContainer } from 'recharts';
+import { useDashboardMetrics } from '@/features/dashboard/hooks/useDashboardMetrics';
 
 export default function DashboardPage() {
     const { ticker: globalTicker, dateRange } = useFilter();
-    const [refreshing, setRefreshing] = useState(false);
 
     // Fallback for dashboard: if 'All' is selected, defaulting to IHSG (^JKSE) might be better for general market view,
     // or we could show an aggregate. For now let's default to ^JKSE if All.
     const ticker = globalTicker === 'All' ? '^JKSE' : globalTicker;
 
-    const [metrics, setMetrics] = useState({
-        price: 0,
-        price_delta: 0,
-        mood_score: 0,
-        mood_label: 'Netral 😐',
-        correlation: 0,
-        volume: 0,
-        trends: {
-            price: [] as number[],
-            mood: [] as number[],
-            correlation: [] as number[],
-            volume: [] as number[]
-        }
+    const { metrics, refreshing, refreshKey, refresh } = useDashboardMetrics({
+        ticker,
+        startDate: dateRange.start,
+        endDate: dateRange.end
     });
-
-    const fetchMetrics = async () => {
-        try {
-            const stats = await api.getDashboardStats(ticker, dateRange.start, dateRange.end);
-            // Map API response to local state structure
-            setMetrics({
-                price: stats.current_price || 0,
-                price_delta: stats.price_change || 0,
-                mood_score: stats.mood_score || 0,
-                mood_label: stats.market_mood || 'Netral 😐',
-                correlation: stats.correlation || 0,
-                volume: stats.news_volume || 0,
-                trends: stats.trends || {
-                    price: [],
-                    mood: [],
-                    correlation: [],
-                    volume: []
-                }
-            });
-        } catch (error) {
-            console.error("Failed to fetch metrics:", error);
-        }
-    };
-
-    useEffect(() => {
-        // Only fetch metrics on load - no auto-scraping
-        // Scraping is now triggered manually via "Refresh Intelligence" button
-        fetchMetrics();
-    }, [ticker, dateRange.start, dateRange.end]);
-
-    const [refreshKey, setRefreshKey] = useState(Date.now());
-
-    const handleRefresh = async () => {
-        if (refreshing) return;
-        setRefreshing(true);
-        try {
-            // Scrape ALL news sources (except IDX) in parallel
-            const sources = [
-                "CNBC Indonesia",
-                "EmitenNews",
-                "Bisnis.com",
-                "Investor.id"
-            ];
-
-            console.log("[Refresh] Triggering scrape for all sources:", sources.join(", "));
-
-            await Promise.all(
-                sources.map(source =>
-                    api.runScraper(source, dateRange.start, dateRange.end)
-                        .catch(err => console.warn(`[Refresh] ${source} failed:`, err))
-                )
-            );
-
-            // Refresh metrics
-            await fetchMetrics();
-
-            // Note: Since we want the chart to also refresh, and it depends on ticker/date,
-            // we could either rely on its internal useEffect OR force a reload if needed.
-            // For a seamless "Auto" feel, let's just re-fetch the metrics.
-            // If the user wants the CHART to also immediately show new candles,
-            // we'll use a small trick: update a 'lastUpdate' timestamp to force re-renders.
-            setRefreshKey(Date.now()); // Trigger chart update
-        } catch (error) {
-            console.error("Refresh failed:", error);
-        } finally {
-            setRefreshing(false);
-        }
-    };
 
     return (
         <div className="flex flex-col gap-8">
@@ -108,7 +28,7 @@ export default function DashboardPage() {
                     <p className="text-zinc-500 mt-1">Real-time sentiment-price correlation and AI insights.</p>
                 </div>
                 <button
-                    onClick={handleRefresh}
+                    onClick={refresh}
                     disabled={refreshing}
                     className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:opacity-50 text-white rounded-lg font-bold text-sm transition-all shadow-lg active:scale-95 shadow-blue-900/20"
                 >
@@ -137,7 +57,7 @@ export default function DashboardPage() {
                 <MetricCard
                     title="Correlation (Pearson)"
                     value={`${metrics.correlation.toFixed(2)}`}
-                    delta={metrics.correlation > 0.5 ? "Strong Pos" : metrics.correlation < -0.5 ? "Strong Neg" : "Weak"}
+                    delta={metrics.correlation > 0.5 ? 'Strong Pos' : metrics.correlation < -0.5 ? 'Strong Neg' : 'Weak'}
                     icon={Users}
                     trend={metrics.correlation >= 0 ? 'up' : 'down'}
                     sparklineData={metrics.trends.correlation}
@@ -167,54 +87,5 @@ export default function DashboardPage() {
                 </div>
             </div>
         </div>
-    );
-}
-
-function MetricCard({ title, value, delta, icon: Icon, trend, sparklineData, tooltip }: any) {
-    const chartData = (sparklineData || []).map((val: number, i: number) => ({ val, i }));
-
-    return (
-        <Card className="bg-zinc-950/50 border-zinc-900 backdrop-blur-sm shadow-xl relative overflow-hidden group">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <div className="flex items-center gap-1.5">
-                    <CardTitle className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">{title}</CardTitle>
-                    {tooltip && (
-                        <div className="group/tooltip relative">
-                            <HelpCircle className="w-3 h-3 text-zinc-700 cursor-help" />
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-[10px] text-zinc-400 invisible group-hover/tooltip:visible z-50 shadow-2xl backdrop-blur-md">
-                                {tooltip}
-                            </div>
-                        </div>
-                    )}
-                </div>
-                <Icon className="h-4 w-4 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
-            </CardHeader>
-            <CardContent>
-                <div className="flex items-end justify-between">
-                    <div>
-                        <div className="text-2xl font-bold text-zinc-100">{value}</div>
-                        <div className={`text-xs mt-1 font-medium ${trend === 'up' ? 'text-emerald-500' : trend === 'down' ? 'text-rose-500' : 'text-zinc-500'}`}>
-                            {delta} {trend !== 'neutral' && <span className="text-zinc-600 font-normal ml-1">vs prev</span>}
-                        </div>
-                    </div>
-                    {chartData.length > 0 && (
-                        <div className="h-10 w-20 mb-1 opacity-50 group-hover:opacity-100 transition-opacity">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={chartData}>
-                                    <Line
-                                        type="monotone"
-                                        dataKey="val"
-                                        stroke={trend === 'up' ? '#10b981' : trend === 'down' ? '#f43f5e' : '#3b82f6'}
-                                        strokeWidth={2}
-                                        dot={false}
-                                        isAnimationActive={true}
-                                    />
-                                </LineChart>
-                            </ResponsiveContainer>
-                        </div>
-                    )}
-                </div>
-            </CardContent>
-        </Card>
     );
 }

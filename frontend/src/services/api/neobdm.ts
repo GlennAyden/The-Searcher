@@ -11,12 +11,12 @@ export { type BrokerFiveItem } from './brokerFive';
 
 export interface NeoBDMData {
     scraped_at: string | null;
-    data: any[];
+    data: unknown[];
 }
 
 export interface NeoBDMHistory {
     symbol: string;
-    history: any[];
+    history: unknown[];
 }
 
 export interface SignalItem {
@@ -28,7 +28,7 @@ export interface SignalItem {
     flow: number;
     price: number;
     change: number;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 export interface HotSignal {
@@ -67,7 +67,8 @@ export const neobdmApi = {
             method,
             period,
             scrape: scrape.toString(),
-            scrape_date: startDate
+            scrape_date: startDate,
+            end_date: endDate
         });
 
         const response = await fetch(`${API_BASE_URL}/api/neobdm-summary?${params}`);
@@ -142,8 +143,8 @@ export const neobdmApi = {
     ): Promise<{
         ticker: string;
         trade_date: string;
-        buy: any[];
-        sell: any[];
+        buy: unknown[];
+        sell: unknown[];
         source: string;
     }> => {
         const params = buildParams({

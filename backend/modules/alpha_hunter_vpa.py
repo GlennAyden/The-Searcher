@@ -40,7 +40,13 @@ class AlphaHunterStage2VPA:
         ticker = ticker.upper()
         watchlist_item = self.watchlist_repo.get_watchlist_item(ticker)
         if not watchlist_item:
-            return {"error": f"{ticker} not found in watchlist"}
+            watchlist_item = {
+                "ticker": ticker,
+                "spike_date": None,
+                "initial_score": 0,
+                "current_stage": 0,
+                "detect_info": {}
+            }
 
         spike_candidate, spike_source = self._resolve_spike_candidate(
             ticker, watchlist_item, lookback_days, min_ratio
@@ -1524,3 +1530,8 @@ class AlphaHunterStage2VPA:
             return abs((d2 - d1).days)
         except ValueError:
             return 999
+
+
+# Backward-compatible alias for refactored class name.
+class AlphaHunterVPA(AlphaHunterStage2VPA):
+    pass

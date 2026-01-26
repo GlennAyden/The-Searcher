@@ -1,17 +1,12 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
     Target,
-    Activity,
-    Flame,
-    LayoutGrid,
     Search,
     TrendingUp,
     Zap,
-    ArrowUpRight,
-    ArrowDownRight,
     SearchCheck,
     Calendar,
     BarChart3,
@@ -28,7 +23,6 @@ import {
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
-    Cell,
     LineChart,
     Line
 } from 'recharts';

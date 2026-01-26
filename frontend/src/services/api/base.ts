@@ -2,7 +2,7 @@
  * Base API configuration and utilities
  */
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
+export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
 
 /**
  * Build URL search params from object

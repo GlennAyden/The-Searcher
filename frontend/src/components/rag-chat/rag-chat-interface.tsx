@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { api, Disclosure } from '@/services/api';
-import { Card, CardContent } from '@/components/ui/card';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { disclosuresApi, type Disclosure } from '@/services/api/disclosures';
 import { useFilter } from '@/context/filter-context';
 
 interface Message {
@@ -25,21 +24,21 @@ export const RagChatInterface = () => {
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    const fetchDisclosures = async () => {
+    const fetchDisclosures = useCallback(async () => {
         setLoading(true);
         try {
-            const data = await api.getDisclosures(ticker === 'All' ? undefined : ticker, dateRange.start, dateRange.end);
+            const data = await disclosuresApi.getDisclosures(ticker === 'All' ? undefined : ticker, dateRange.start, dateRange.end);
             setDisclosures(data);
         } catch (error) {
             console.error("Failed to fetch disclosures:", error);
         } finally {
             setLoading(false);
         }
-    };
+    }, [ticker, dateRange.start, dateRange.end]);
 
     useEffect(() => {
         fetchDisclosures();
-    }, [ticker, dateRange]);
+    }, [fetchDisclosures]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -48,7 +47,7 @@ export const RagChatInterface = () => {
     const handleSync = async () => {
         setSyncing(true);
         try {
-            await api.syncDisclosures();
+            await disclosuresApi.syncDisclosures();
             await fetchDisclosures();
         } catch (error) {
             console.error("Sync failure:", error);
@@ -74,7 +73,7 @@ export const RagChatInterface = () => {
 
         setChatLoading(true);
         try {
-            const response = await api.sendChatMessage(docId, selectedDoc.title, currentInput);
+            const response = await disclosuresApi.sendChatMessage(docId, selectedDoc.title, currentInput);
             const assistantMsg: Message = { role: 'assistant', content: response };
 
             setMessages(prev => ({
@@ -97,7 +96,7 @@ export const RagChatInterface = () => {
         e.stopPropagation();
         if (!filePath) return;
         try {
-            await api.openFile(filePath);
+            await disclosuresApi.openFile(filePath);
         } catch (error) {
             console.error("Failed to open file:", error);
             alert("Gagal membuka file. Pastikan backend berjalan dan file tersedia.");

@@ -19,3 +19,6 @@ langchain-experimental
 playwright
 python-dotenv
 wordcloud
+pytest
+pytest-asyncio
+httpx

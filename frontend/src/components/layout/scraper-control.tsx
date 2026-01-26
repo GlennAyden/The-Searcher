@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { api } from '@/services/api';
+import { scrapersApi } from '@/services/api/scrapers';
 import { Settings, Rocket, ChevronDown, ChevronUp, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -40,7 +40,7 @@ export const ScraperControl = ({ isCollapsed }: { isCollapsed: boolean }) => {
         setLoading(true);
         setStatus({ type: 'info', message: `Menjalankan Scraper ${source}...` });
         try {
-            const result = await api.runScraper(source, startDate, endDate, scrapeTicker, scrapeAllHistory);
+            const result = await scrapersApi.runScraper(source, startDate, endDate, scrapeTicker, scrapeAllHistory);
             if (result.status === 'success') {
                 setStatus({ type: 'success', message: result.message });
                 // Reset status after 5 seconds

@@ -141,6 +141,26 @@ class DatabaseConnection:
                 scraped_at DATETIME
             );
         """)
+        
+        # Backward-compatibility view for legacy broker_summary table usage
+        try:
+            conn.execute("""
+                CREATE VIEW IF NOT EXISTS broker_summary AS
+                SELECT
+                    ticker,
+                    trade_date,
+                    broker,
+                    nlot,
+                    nval,
+                    CASE WHEN side = 'SELL' THEN -nlot ELSE nlot END AS net_lot,
+                    CASE WHEN side = 'SELL' THEN -nval ELSE nval END AS net_value,
+                    avg_price,
+                    side
+                FROM neobdm_broker_summaries
+            """)
+        except sqlite3.OperationalError:
+            # View may fail to create if a legacy table already exists.
+            pass
 
         # Broker 5% Watchlist (Manual CRUD)
         conn.execute("""

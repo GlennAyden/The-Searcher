@@ -8,6 +8,82 @@ from .connection import BaseRepository
 class MarketMetadataRepository(BaseRepository):
     """Repository for market metadata with TTL-based caching."""
     
+    def get_metadata(self, symbol: str) -> Optional[dict]:
+        """
+        Backward-compatible metadata fetch.
+        
+        Returns cached market cap + shares outstanding when available.
+        """
+        clean_symbol = symbol.strip().upper()
+        conn = self._get_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT market_cap, shares_outstanding, cached_at, last_price
+                FROM market_metadata
+                WHERE symbol = ?
+                """,
+                (clean_symbol,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                "market_cap": row[0],
+                "shares_outstanding": row[1],
+                "cached_at": row[2],
+                "last_price": row[3]
+            }
+        finally:
+            conn.close()
+    
+    def upsert_metadata(self, symbol: str, data: dict) -> bool:
+        """
+        Backward-compatible metadata upsert.
+        
+        Accepts dicts with market_cap, shares_outstanding, last_price, last_updated.
+        """
+        clean_symbol = symbol.strip().upper()
+        market_cap = data.get("market_cap")
+        shares_outstanding = data.get("shares_outstanding")
+        last_price = data.get("last_price")
+        cached_at = data.get("last_updated") or data.get("cached_at") or datetime.now().isoformat()
+        
+        conn = self._get_conn()
+        try:
+            cursor = conn.cursor()
+            if market_cap is None:
+                cursor.execute(
+                    """
+                    UPDATE market_metadata
+                    SET shares_outstanding = COALESCE(?, shares_outstanding),
+                        last_price = COALESCE(?, last_price),
+                        cached_at = ?
+                    WHERE symbol = ?
+                    """,
+                    (shares_outstanding, last_price, cached_at, clean_symbol)
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+            
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO market_metadata
+                (symbol, market_cap, currency, cached_at, source, shares_outstanding, last_price)
+                VALUES (?, ?, 'IDR', ?, 'yfinance', ?, ?)
+                """,
+                (clean_symbol, market_cap, cached_at, shares_outstanding, last_price)
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"[!] Error upserting market metadata for {clean_symbol}: {e}")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+    
     def get_market_cap(self, symbol: str, ttl_hours: int = 24) -> Optional[float]:
         """
         Get market cap with automatic caching and TTL validation.

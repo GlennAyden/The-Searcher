@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from datetime import datetime, timedelta
+from typing import Optional
 import re
 import pandas as pd
 
@@ -69,6 +70,25 @@ def parse_tsv_data(raw_data: str) -> list:
             continue
     
     return records
+
+
+def _resolve_date_range(ticker: str, start_date: Optional[str], end_date: Optional[str]) -> tuple:
+    """
+    Resolve missing date params by falling back to latest available trade_date.
+    """
+    if start_date and not end_date:
+        return start_date, start_date
+    if end_date and not start_date:
+        return end_date, end_date
+    if start_date and end_date:
+        return start_date, end_date
+    
+    # Fallback to latest available date for this ticker
+    date_info = repo.get_date_range(ticker)
+    latest = date_info.get("max_date") if isinstance(date_info, dict) else None
+    if not latest:
+        latest = datetime.now().strftime("%Y-%m-%d")
+    return latest, latest
 
 
 @router.get("/exists/{ticker}/{trade_date}")
@@ -252,7 +272,7 @@ async def get_date_range(ticker: str):
 
 
 @router.get("/imposter/{ticker}")
-async def get_imposter_analysis(ticker: str, start_date: str, end_date: str):
+async def get_imposter_analysis(ticker: str, start_date: Optional[str] = None, end_date: Optional[str] = None):
     """
     Detect suspiciously large transactions from retail brokers.
     
@@ -266,6 +286,7 @@ async def get_imposter_analysis(ticker: str, start_date: str, end_date: str):
     Returns:
         Imposter analysis with suspicious trades, broker stats, and date breakdown
     """
+    start_date, end_date = _resolve_date_range(ticker, start_date, end_date)
     # For single-day queries, read from synthesis
     if start_date == end_date:
         synthesis = repo.get_synthesis(ticker, start_date)
@@ -297,7 +318,7 @@ async def get_imposter_analysis(ticker: str, start_date: str, end_date: str):
 
 
 @router.get("/speed/{ticker}")
-async def get_speed_analysis(ticker: str, start_date: str, end_date: str):
+async def get_speed_analysis(ticker: str, start_date: Optional[str] = None, end_date: Optional[str] = None):
     """
     Analyze trading speed - trades per second and burst patterns.
     
@@ -311,6 +332,7 @@ async def get_speed_analysis(ticker: str, start_date: str, end_date: str):
     Returns:
         Speed analysis with broker stats, bursts, and timeline
     """
+    start_date, end_date = _resolve_date_range(ticker, start_date, end_date)
     # For single-day queries, read from synthesis
     if start_date == end_date:
         synthesis = repo.get_synthesis(ticker, start_date)
@@ -340,7 +362,7 @@ async def get_speed_analysis(ticker: str, start_date: str, end_date: str):
 
 
 @router.get("/combined/{ticker}")
-async def get_combined_analysis(ticker: str, start_date: str, end_date: str):
+async def get_combined_analysis(ticker: str, start_date: Optional[str] = None, end_date: Optional[str] = None):
     """
     Combined analysis merging Impostor and Speed data for trading signals.
     
@@ -361,6 +383,7 @@ async def get_combined_analysis(ticker: str, start_date: str, end_date: str):
     Returns:
         Combined analysis with signal, power brokers, flow, and timeline
     """
+    start_date, end_date = _resolve_date_range(ticker, start_date, end_date)
     # For single-day queries, read from synthesis
     if start_date == end_date:
         synthesis = repo.get_synthesis(ticker, start_date)
@@ -419,7 +442,7 @@ async def get_broker_profile(ticker: str, broker_code: str, start_date: str, end
 
 
 @router.get("/range-analysis/{ticker}")
-async def get_range_analysis(ticker: str, start_date: str, end_date: str):
+async def get_range_analysis(ticker: str, start_date: Optional[str] = None, end_date: Optional[str] = None):
     """
     Range-based analysis for Done Detail with focus on:
     1. Retail Capitulation (50% Rule) - tracking when retail "dumps" their holdings
@@ -438,6 +461,8 @@ async def get_range_analysis(ticker: str, start_date: str, end_date: str):
         Range analysis with capitulation, recurrence, timeline and summary
     """
     # Use synthesis-based method (much faster)
+    start_date, end_date = _resolve_date_range(ticker, start_date, end_date)
+    return repo.get_range_analysis(ticker, start_date, end_date)
 
 @router.get("/status")
 async def get_scrape_status():

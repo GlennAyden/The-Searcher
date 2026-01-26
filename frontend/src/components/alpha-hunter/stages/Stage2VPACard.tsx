@@ -8,10 +8,7 @@ import {
     CheckCircle2,
     XCircle,
     AlertCircle,
-    TrendingUp,
     BarChart3,
-    Activity,
-    Target,
     ChevronDown,
     ChevronUp,
     LayoutGrid,
@@ -22,10 +19,20 @@ import { useAlphaHunter } from "../AlphaHunterContext";
 import StageCard from "./StageCard";
 import Stage2VisualizationPanel from "./Stage2VisualizationPanel";
 import { Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ComposedChart, Bar, CartesianGrid, ReferenceLine } from 'recharts';
+import { API_BASE_URL } from "@/services/api/base";
 
 interface Stage2VPACardProps {
     ticker: string;
 }
+
+type PullbackLogEntry = {
+    date?: string;
+    price?: number;
+    price_chg?: number;
+    volume?: number;
+    status?: string;
+    vol_chg?: number;
+};
 
 export default function Stage2VPACard({ ticker }: Stage2VPACardProps) {
     const {
@@ -55,7 +62,7 @@ export default function Stage2VPACard({ ticker }: Stage2VPACardProps) {
             setCurrentStep("Fetching OHLCV data...");
             setProgress(30);
 
-            const response = await fetch(`http://localhost:8000/api/alpha-hunter/stage2/vpa/${ticker}`);
+            const response = await fetch(`${API_BASE_URL}/api/alpha-hunter/stage2/vpa/${ticker}`);
 
             if (!response.ok) {
                 throw new Error("Failed to fetch VPA data");
@@ -160,10 +167,10 @@ export default function Stage2VPACard({ ticker }: Stage2VPACardProps) {
         if (!data) return null;
 
         // Prepare chart data with colored volumes
-        const chartData = data.pullback?.log?.map((entry: any) => {
+        const chartData = data.pullback?.log?.map((entry: PullbackLogEntry) => {
             const priceChg = entry.price_chg || 0;
             // Calculate approximate open from close and price_chg
-            const close = entry.price;
+            const close = entry.price || 0;
             const open = close / (1 + priceChg / 100);
             const isGreen = close >= open; // Green if accumulation (close >= open)
 
@@ -171,9 +178,9 @@ export default function Stage2VPACard({ ticker }: Stage2VPACardProps) {
                 date: entry.date?.slice(5) || '',
                 close: close,
                 open: open,
-                volume: entry.volume,
-                volumeGreen: isGreen ? entry.volume : 0,  // For green bars
-                volumeRed: !isGreen ? entry.volume : 0,   // For red bars
+                volume: entry.volume || 0,
+                volumeGreen: isGreen ? (entry.volume || 0) : 0,  // For green bars
+                volumeRed: !isGreen ? (entry.volume || 0) : 0,   // For red bars
                 status: entry.status,
                 priceChg: priceChg
             };
@@ -400,7 +407,7 @@ export default function Stage2VPACard({ ticker }: Stage2VPACardProps) {
                                 </span>
                             </div>
                             <div className="flex items-center gap-1 flex-wrap">
-                                {data.pullback?.log?.map((entry: any, idx: number) => (
+                                {data.pullback?.log?.map((entry: PullbackLogEntry, idx: number) => (
                                     <div
                                         key={idx}
                                         className={cn(

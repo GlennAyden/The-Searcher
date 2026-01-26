@@ -112,6 +112,7 @@ export interface ImposterAnalysis {
         possible_count: number;
     };
     error?: string;
+    message?: string;
 }
 
 // Speed Analysis interfaces
@@ -151,6 +152,7 @@ export interface SpeedAnalysis {
         peak_time: string | null;
     };
     error?: string;
+    message?: string;
 }
 
 // Combined Analysis interfaces (merges Impostor + Speed)
@@ -226,6 +228,7 @@ export interface CombinedAnalysis {
     imposter_analysis?: ImposterAnalysis;
     speed_analysis?: SpeedAnalysis;
     error?: string;
+    message?: string;
 }
 
 export interface BrokerProfile {

@@ -1,0 +1,335 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20260126025021
+Username: CHESSBOARD\king
+RunAs User: CHESSBOARD\king
+Configuration Name: 
+Machine: CHESSBOARD (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -noexit -command try { . "c:\Users\king\AppData\Local\Programs\Antigravity\resources\app\out\vs\workbench\contrib\terminal\common\scripts\shellIntegration.ps1" } catch {}
+Process ID: 18360
+PSVersion: 5.1.26100.7627
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.7627
+BuildVersion: 10.0.26100.7627
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+
+========================================
+ Backend Health
+========================================
+[PASS] Backend health check ok.
+
+========================================
+ Discover Sample Ticker
+========================================
+[PASS] Issuer tickers ok.
+[PASS] Using sample ticker: AADI
+
+========================================
+ Dashboard
+========================================
+[PASS] Dashboard stats ok.
+
+Name                           Value
+----                           -----
+Body                           @{price=8951.0097...
+Status                         200
+Raw                            {"price":8951.009...
+Error
+[PASS] Market data ok.
+Body                           {@{timestamp=2025...
+Status                         200
+Raw                            [{"timestamp":"20...
+Error
+[PASS] Sentiment data ok.
+Body                           {@{date=2025-12-2...
+Status                         200
+Raw                            [{"date":"2025-12...
+Error
+[PASS] Dashboard tickers ok.
+Body                           @{tickers=System....
+Status                         200
+Raw                            {"tickers":["AADI...
+Error
+
+========================================
+ News Library
+========================================
+[PASS] News list ok.
+Body                           {@{id=https://inv...
+Status                         200
+Raw                            [{"id":"https://i...
+Error
+[PASS] Brief news ok.
+Body                           @{brief=Berikut a...
+Status                         200
+Raw                            {"brief":"Berikut...
+Error
+[PASS] Brief single ok.
+Body                           @{brief=Berikut a...
+Status                         200
+Raw                            {"brief":"Berikut...
+Error
+[PASS] Ticker counts ok.
+Body                           @{counts=System.O...
+Status                         200
+Raw                            {"counts":[{"tick...
+Error
+[PASS] Wordcloud ok.
+Body                           @{image=data:imag...
+Status                         200
+Raw                            {"image":"data:im...
+Error
+[PASS] Story finder keywords ok.
+Body                           @{keywords=System...
+Status                         200
+Raw                            {"keywords":[{"ke...
+Error
+[PASS] Story finder ok.
+Body                           @{stories=System....
+Status                         200
+Raw                            {"stories":[{"id"...
+Error
+
+========================================
+ IDX Disclosures + RAG Chat
+========================================
+[PASS] Disclosures list ok.
+[PASS] RAG chat ok.
+[PASS] Sync disclosures ok.
+
+========================================
+ NeoBDM Summary
+========================================
+[PASS] NeoBDM summary (daily) ok.
+Body                           @{scraped_at=2026...
+Status                         200
+Raw                            {"scraped_at":"20...
+Error
+[PASS] NeoBDM summary (cumulative) ok.
+Body                           @{scraped_at=2026...
+Status                         200
+Raw                            {"scraped_at":"20...
+Error
+[PASS] NeoBDM dates ok.
+Body                           @{dates=System.Ob...
+Status                         200
+Raw                            {"dates":["2026-0...
+Error
+[PASS] NeoBDM hot list ok.
+[PASS] NeoBDM tickers ok.
+Body                           @{tickers=System....
+Status                         200
+Raw                            {"tickers":["AADI...
+Error
+
+========================================
+ NeoBDM Tracker
+========================================
+[PASS] NeoBDM history ok.
+Body                           @{symbol=AADI; hi...
+Status                         200
+Raw                            {"symbol":"AADI",...
+Error
+
+========================================
+ Broker Summary
+========================================
+PS>TerminatingError(Invoke-WebRequest): "{"error":"no such table: broker_summary"}"
+[WARN] Broker summary dates failed (status 500).
+PS>TerminatingError(Invoke-WebRequest): "Internal Server Error"
+[FAIL] Broker summary failed (status 500).
+PS>TerminatingError(Invoke-WebRequest): "{"error":"no such table: broker_summary"}"
+[FAIL] Broker summary top holders failed with status 500.
+Body
+Status                         500
+Raw
+Error                          The remote server...
+PS>TerminatingError(Invoke-WebRequest): "{"error":"Execution failed on sql '\n            SELECT * FROM broker_summary\n            WHERE ticker = ? AND trade_date >= ? AND trade_date <= ?\n            ORDER BY trade_date DESC, ABS(net_value) DESC\n            ': no such table: broker_summary"}"
+[FAIL] Floor price failed (status 500).
+PS>TerminatingError(Invoke-WebRequest): "Internal Server Error"
+[FAIL] Broker summary alternate endpoint failed with status 500.
+Body
+Status                         500
+Raw
+Error                          The remote server...
+[PASS] Broker five list ok.
+Body                           @{items=System.Ob...
+Status                         200
+Raw                            {"items":[]}
+Error
+PS>TerminatingError(Invoke-WebRequest): "{"error":"Execution failed on sql '\n            SELECT * FROM broker_summary\n            WHERE ticker = ? AND trade_date >= ? AND trade_date <= ?\n            ORDER BY trade_date DESC, ABS(net_value) DESC\n            ': no such table: broker_summary"}"
+[FAIL] Broker journey failed with status 500.
+Body
+Status                         500
+Raw
+Error                          The remote server...
+PS>TerminatingError(Invoke-WebRequest): "{"detail":[{"type":"list_type","loc":["body"],"msg":"Input should be a valid list","input":{"dates":["2026-01-26"],"ticker":"AADI"}}]}"
+[WARN] Broker summary batch failed (status 422).
+
+========================================
+ Price & Volume
+========================================
+[PASS] Price-volume exists check ok.
+PS>TerminatingError(Invoke-WebRequest): "{"detail":"No data found for =1"}"
+[WARN] Price-volume data returned 404 (no data).
+Body
+Status                         404
+Raw
+Error                          The remote server...
+[PASS] Spike markers ok.
+Body                           @{ticker=AADI; ma...
+Status                         200
+Raw                            {"ticker":"AADI",...
+Error
+[PASS] Compression ok.
+Body                           @{ticker=AADI; is...
+Status                         200
+Raw                            {"ticker":"AADI",...
+Error
+[PASS] Flow impact ok.
+Body                           @{ticker=AADI; da...
+Status                         200
+Raw                            {"ticker":"AADI",...
+Error
+PS>TerminatingError(Invoke-WebRequest): "{"detail":"'MarketMetadataRepository' object has no attribute 'get_metadata'"}"
+[FAIL] Market cap failed with status 500.
+Body
+Status                         500
+Raw
+Error                          The remote server...
+[PASS] Unusual volume scan ok.
+Body                           @{unusual_volumes...
+Status                         200
+Raw                            {"unusual_volumes...
+Error
+[PASS] Anomaly scan ok.
+Body                           @{anomalies=Syste...
+Status                         200
+Raw                            {"anomalies":[{"t...
+Error
+
+========================================
+ Alpha Hunter
+========================================
+[PASS] Alpha Hunter stage1 scan ok.
+Body                           @{total_signals=2...
+Status                         200
+Raw                            {"total_signals":...
+Error
+PS>TerminatingError(Invoke-WebRequest): "The operation has timed out."
+[FAIL] Alpha Hunter legacy scan failed with status .
+Body
+Status
+Raw
+Error                          The operation has...
+[PASS] Alpha Hunter flow ok.
+Body                           @{ticker==7; smar...
+Status                         200
+Raw                            {"ticker":"=7","s...
+Error
+[PASS] Alpha Hunter supply ok.
+Body                           @{ticker=AADI; fi...
+Status                         200
+Raw                            {"ticker":"AADI",...
+Error
+[PASS] Alpha Hunter watchlist ok.
+Body                           @{watchlist=Syste...
+Status                         200
+Raw                            {"watchlist":[{"t...
+Error
+PS>TerminatingError(Invoke-WebRequest): "{"detail":"cannot import name 'AlphaHunterVPA' from 'modules.alpha_hunter_vpa' (C:\\Data\\AI Playground\\project-searcher\\backend\\modules\\alpha_hunter_vpa.py)"}"
+[FAIL] Alpha Hunter stage2 VPA failed (status 500).
+PS>TerminatingError(Invoke-WebRequest): "{"detail":"cannot import name 'AlphaHunterVPA' from 'modules.alpha_hunter_vpa' (C:\\Data\\AI Playground\\project-searcher\\backend\\modules\\alpha_hunter_vpa.py)"}"
+[FAIL] Alpha Hunter stage2 visualization failed (status 500).
+[PASS] Alpha Hunter watchlist add ok.
+[PASS] Alpha Hunter watchlist remove ok.
+
+========================================
+ Done Detail
+========================================
+[PASS] Done detail history ok.
+[PASS] Done detail status ok.
+Body                           @{data=System.Obj...
+Status                         200
+Raw                            {"data":[{"ticker...
+Error
+[PASS] Done detail exists ok.
+Body                           @{exists=True; ti...
+Status                         200
+Raw                            {"exists":true,"t...
+Error
+[PASS] Done detail data ok.
+Body                           @{records=System....
+Status                         200
+Raw                            {"records":[{"id"...
+Error
+[PASS] Done detail sankey ok.
+Body                           @{nodes=System.Ob...
+Status                         200
+Raw                            {"nodes":[{"name"...
+Error
+[PASS] Done detail inventory ok.
+Body                           @{brokers=System....
+Status                         200
+Raw                            {"brokers":[],"ti...
+Error
+[PASS] Done detail analysis ok.
+Body                           @{status=DISTRIBU...
+Status                         200
+Raw                            {"status":"DISTRI...
+Error
+PS>TerminatingError(Invoke-WebRequest): "{"detail":[{"type":"missing","loc":["query","start_date"],"msg":"Field required","input":null},{"type":"missing","loc":["query","end_date"],"msg":"Field required","input":null}]}"
+[FAIL] Done detail imposter failed with status 422.
+Body
+Status                         422
+Raw
+Error                          The remote server...
+PS>TerminatingError(Invoke-WebRequest): "{"detail":[{"type":"missing","loc":["query","start_date"],"msg":"Field required","input":null},{"type":"missing","loc":["query","end_date"],"msg":"Field required","input":null}]}"
+[FAIL] Done detail speed failed with status 422.
+Body
+Status                         422
+Raw
+Error                          The remote server...
+PS>TerminatingError(Invoke-WebRequest): "{"detail":[{"type":"missing","loc":["query","start_date"],"msg":"Field required","input":null},{"type":"missing","loc":["query","end_date"],"msg":"Field required","input":null}]}"
+[FAIL] Done detail combined failed with status 422.
+Body
+Status                         422
+Raw
+Error                          The remote server...
+[PASS] Done detail broker profile ok.
+Body                           @{broker=YP; stat...
+Status                         200
+Raw                            {"broker":"YP","s...
+Error
+PS>TerminatingError(Invoke-WebRequest): "{"detail":[{"type":"missing","loc":["query","start_date"],"msg":"Field required","input":null},{"type":"missing","loc":["query","end_date"],"msg":"Field required","input":null}]}"
+[FAIL] Done detail range analysis failed with status 422.
+Body
+Status                         422
+Raw
+Error                          The remote server...
+
+========================================
+ Scraper Engine (Optional)
+========================================
+PS>TerminatingError(Invoke-WebRequest): "{"error":"module 'config' has no attribute 'BASE_URL'"}"
+[WARN] Scrape endpoint failed (status 500).
+
+========================================
+ Frontend Routes
+========================================
+[WARN] Skipping frontend route checks (CheckFrontendRoutes not set).
+
+========================================
+ Summary
+========================================
+Passed: 44
+Warnings: 5
+Failed: 13
+**********************
+Windows PowerShell transcript end
+End time: 20260126025239
+**********************

@@ -9,7 +9,6 @@ import {
     BarChart3,
     ChevronDown,
     ChevronRight,
-    ChevronLeft,
     Loader2,
     CheckCircle2,
     Lock,
@@ -19,6 +18,7 @@ import {
     PanelLeft
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { API_BASE_URL } from "@/services/api/base";
 import { useAlphaHunter } from "./AlphaHunterContext";
 import { StageStatus } from "./types";
 
@@ -38,6 +38,7 @@ export default function WatchlistSidebar({ isCollapsed = false, onToggle }: Watc
     } = useAlphaHunter();
 
     const [showCompleted, setShowCompleted] = useState(false);
+    const [now] = useState(() => Date.now());
 
     // Separate active and completed investigations
     const activeInvestigations = Object.values(investigations).filter(inv => !inv.isComplete);
@@ -49,7 +50,7 @@ export default function WatchlistSidebar({ isCollapsed = false, onToggle }: Watc
 
         try {
             // Also remove from backend watchlist
-            await fetch("http://localhost:8000/api/alpha-hunter/watchlist", {
+            await fetch(`${API_BASE_URL}/api/alpha-hunter/watchlist`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ action: "remove", ticker })
@@ -93,7 +94,8 @@ export default function WatchlistSidebar({ isCollapsed = false, onToggle }: Watc
     };
 
     const getRelativeTime = (isoString: string) => {
-        const diff = Date.now() - new Date(isoString).getTime();
+        if (!now) return "Just now";
+        const diff = now - new Date(isoString).getTime();
         const minutes = Math.floor(diff / 60000);
         if (minutes < 1) return "Just now";
         if (minutes < 60) return `${minutes}m ago`;
