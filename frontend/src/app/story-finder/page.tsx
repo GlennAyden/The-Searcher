@@ -18,7 +18,12 @@ export default function StoryFinderPage() {
         setCustomKeyword,
         addCustomKeyword,
         groupedStories,
-        sortedDates
+        sortedDates,
+        ticker,
+        setTicker,
+        setSelectedKeywords,
+        timeRange,
+        setTimeRange
     } = useStoryFinder({
         startDate: dateRange.start,
         endDate: dateRange.end
@@ -36,6 +41,19 @@ export default function StoryFinderPage() {
                 onToggleKeyword={toggleKeyword}
                 onCustomKeywordChange={setCustomKeyword}
                 onAddCustomKeyword={addCustomKeyword}
+                ticker={ticker}
+                onTickerChange={(val) => {
+                    setTicker(val);
+                    // If user starts typing a ticker, we assume generic search mode first (clear keywords)
+                    // But if they clear the ticker, we can leave it empty or restore defaults?
+                    // User request: "When entering an emiten, news appearing is NOT based on keyword"
+                    // So we clear keywords when val is present.
+                    if (val && selectedKeywords.length > 0) {
+                        setSelectedKeywords([]);
+                    }
+                }}
+                timeRange={timeRange}
+                onTimeRangeChange={setTimeRange}
             />
 
             {data && (

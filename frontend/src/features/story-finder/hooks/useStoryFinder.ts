@@ -13,9 +13,12 @@ export const useStoryFinder = ({ startDate, endDate }: UseStoryFinderProps) => {
     const [data, setData] = useState<StoryFinderResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [customKeyword, setCustomKeyword] = useState('');
+    const [ticker, setTicker] = useState('');
+    const [timeRange, setTimeRange] = useState<'30d' | 'all'>('30d');
 
     const fetchStories = useCallback(async () => {
-        if (selectedKeywords.length === 0) {
+        // Allow fetch if keywords selected OR if a ticker is being filtered
+        if (selectedKeywords.length === 0 && !ticker) {
             setData({ stories: [], keyword_stats: {}, total: 0 });
             setLoading(false);
             return;
@@ -26,7 +29,9 @@ export const useStoryFinder = ({ startDate, endDate }: UseStoryFinderProps) => {
             const result = await storyFinderService.getStories({
                 keywords: selectedKeywords,
                 startDate,
-                endDate
+                endDate,
+                ticker,
+                allTime: timeRange === 'all'
             });
             setData(result);
         } catch (error) {
@@ -34,7 +39,7 @@ export const useStoryFinder = ({ startDate, endDate }: UseStoryFinderProps) => {
         } finally {
             setLoading(false);
         }
-    }, [selectedKeywords, startDate, endDate]);
+    }, [selectedKeywords, startDate, endDate, ticker, timeRange]);
 
     useEffect(() => {
         fetchStories();
@@ -81,6 +86,11 @@ export const useStoryFinder = ({ startDate, endDate }: UseStoryFinderProps) => {
         setCustomKeyword,
         addCustomKeyword,
         groupedStories,
-        sortedDates
+        sortedDates,
+        ticker,
+        setTicker,
+        setSelectedKeywords,
+        timeRange,
+        setTimeRange
     };
 };

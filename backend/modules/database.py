@@ -44,6 +44,9 @@ class DatabaseManager:
     
     def get_news(self, ticker=None, start_date=None, end_date=None, limit=None, offset=None, sentiment_label=None, source=None):
         return self.news_repo.get_news(ticker, start_date, end_date, limit, offset, sentiment_label, source)
+
+    def count_news(self, ticker=None, start_date=None, end_date=None, sentiment_label=None, source=None):
+        return self.news_repo.count_news(ticker, start_date, end_date, sentiment_label, source)
     
     def check_url_exists(self, url):
         return self.news_repo.check_url_exists(url)

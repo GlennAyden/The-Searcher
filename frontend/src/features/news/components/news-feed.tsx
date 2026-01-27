@@ -10,12 +10,18 @@ import { Loader2, Sparkles } from 'lucide-react';
 interface NewsFeedProps {
     news: NewsItem[];
     loading: boolean;
+    totalCount?: number;
+    page?: number;
+    pageSize?: number;
 }
 
-export const NewsFeed = ({ news, loading }: NewsFeedProps) => {
+export const NewsFeed = ({ news, loading, totalCount, page = 1, pageSize = 0 }: NewsFeedProps) => {
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [singleBriefs, setSingleBriefs] = useState<Record<string, string>>({});
     const [briefLoadingId, setBriefLoadingId] = useState<string | null>(null);
+    const effectivePageSize = pageSize || news.length || 0;
+    const startIndex = totalCount ? (page - 1) * effectivePageSize + 1 : 0;
+    const endIndex = totalCount ? Math.min(page * effectivePageSize, totalCount) : 0;
 
     const getSentimentStyle = (label: string) => {
         switch (label) {
@@ -57,7 +63,9 @@ export const NewsFeed = ({ news, loading }: NewsFeedProps) => {
                     📰 NEWS FEED
                 </CardTitle>
                 <div className="text-[10px] font-mono text-zinc-600 uppercase">
-                    {news.length} ARTICLES FOUND
+                    {totalCount !== undefined
+                        ? `SHOWING ${startIndex}-${endIndex} OF ${totalCount}`
+                        : `${news.length} ARTICLES FOUND`}
                 </div>
             </CardHeader>
             <CardContent className="p-0 overflow-x-auto">

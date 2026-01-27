@@ -28,7 +28,11 @@ async def get_news(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     sentiment: str = "All",
-    source: str = "All"
+    source: str = "All",
+    all_time: bool = False,
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+    include_total: bool = False
 ):
     """
     Get filtered news articles with sentiment labels.
@@ -41,9 +45,13 @@ async def get_news(
         source: Filter by source (All, CNBC, EmitenNews, IDX)
     """
     try:
-        # Parse dates
-        end_dt = datetime.now() if not end_date else datetime.fromisoformat(end_date)
-        start_dt = end_dt - timedelta(days=30) if not start_date else datetime.fromisoformat(start_date)
+        # Parse dates (default 30d unless all_time=true)
+        if all_time:
+            start_dt = None
+            end_dt = None
+        else:
+            end_dt = datetime.now() if not end_date else datetime.fromisoformat(end_date)
+            start_dt = end_dt - timedelta(days=30) if not start_date else datetime.fromisoformat(start_date)
 
         sentiment_label = None
         if sentiment == "Bullish Only": 
@@ -55,13 +63,27 @@ async def get_news(
 
         news_df = data_provider.db_manager.get_news(
             ticker=ticker,
-            start_date=start_dt.strftime('%Y-%m-%d'),
-            end_date=end_dt.strftime('%Y-%m-%d'),
+            start_date=start_dt.strftime('%Y-%m-%d') if start_dt else None,
+            end_date=end_dt.strftime('%Y-%m-%d') if end_dt else None,
             sentiment_label=sentiment_label,
-            source=source
+            source=source,
+            limit=limit,
+            offset=offset
         )
 
+        total = None
+        if include_total:
+            total = data_provider.db_manager.count_news(
+                ticker=ticker,
+                start_date=start_dt.strftime('%Y-%m-%d') if start_dt else None,
+                end_date=end_dt.strftime('%Y-%m-%d') if end_dt else None,
+                sentiment_label=sentiment_label,
+                source=source
+            )
+
         if news_df.empty:
+            if include_total:
+                return {"items": [], "total": total or 0}
             return []
 
         result = []
@@ -94,6 +116,9 @@ async def get_news(
                 "url": row['url'],
                 "source": s_name
             })
+        if include_total:
+            return {"items": result, "total": total or len(result)}
+
         return result
     except Exception as e:
         import traceback
@@ -330,7 +355,8 @@ async def get_story_finder(
     keywords: str = "right issue,akuisisi,dividen",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    ticker: Optional[str] = None
+    ticker: Optional[str] = None,
+    all_time: bool = False
 ):
     """
     Find news stories containing specified keywords with highlight positions.
@@ -347,9 +373,13 @@ async def get_story_finder(
         total: Total number of matching stories
     """
     try:
-        # Parse dates
-        end_dt = datetime.now() if not end_date else datetime.fromisoformat(end_date)
-        start_dt = end_dt - timedelta(days=30) if not start_date else datetime.fromisoformat(start_date)
+        # Parse dates (default 30d unless all_time=true)
+        if all_time:
+            start_dt = None
+            end_dt = None
+        else:
+            end_dt = datetime.now() if not end_date else datetime.fromisoformat(end_date)
+            start_dt = end_dt - timedelta(days=30) if not start_date else datetime.fromisoformat(start_date)
         
         # Parse keywords
         keyword_list = [k.strip().lower() for k in keywords.split(",") if k.strip()]
@@ -372,12 +402,12 @@ async def get_story_finder(
                     "search_terms": [kw]
                 }
         
-        # Get news from database
+        # Get news from database (no hard cap so keyword filter scans full range)
         news_df = data_provider.db_manager.get_news(
             ticker=ticker if ticker and ticker != "All" else None,
-            start_date=start_dt.strftime('%Y-%m-%d'),
-            end_date=end_dt.strftime('%Y-%m-%d'),
-            limit=500  # Get more for keyword filtering
+            start_date=start_dt.strftime('%Y-%m-%d') if start_dt else None,
+            end_date=end_dt.strftime('%Y-%m-%d') if end_dt else None,
+            limit=None
         )
         
         if news_df.empty:
@@ -388,8 +418,9 @@ async def get_story_finder(
         
         for _, row in news_df.iterrows():
             title = str(row.get('title', ''))
-            clean_text = str(row.get('clean_text', ''))
-            search_text = (title + " " + clean_text).lower()
+            # Note: DB stores article body in "content" column.
+            content_text = row.get('clean_text') or row.get('content') or ""
+            search_text = (title + " " + str(content_text)).lower()
             
             # Find matching keywords
             matched_keywords = []
@@ -437,6 +468,37 @@ async def get_story_finder(
                     "primary_category": kw_info["category"],
                     "primary_icon": kw_info["icon"],
                     "highlight_positions": all_positions,
+                    "sentiment_label": row.get('sentiment_label', 'Netral'),
+                    "sentiment_score": float(row['sentiment_score']) if pd.notna(row.get('sentiment_score')) else 0.0,
+                    "source": source,
+                    "url": url
+                })
+            elif ticker and not keyword_list:
+                # General news mode for specific ticker (no keywords selected)
+                url = str(row.get('url', ''))
+                if "cnbcindonesia.com" in url:
+                    source = "CNBC"
+                elif "emitennews.com" in url:
+                    source = "EmitenNews"
+                elif "idx.co.id" in url:
+                    source = "IDX"
+                elif "bisnis.com" in url:
+                    source = "Bisnis.com"
+                elif "investor.id" in url:
+                    source = "Investor.id"
+                else:
+                    source = "Web"
+
+                stories.append({
+                    "id": url,
+                    "date": pd.to_datetime(row['timestamp']).strftime('%Y-%m-%d'),
+                    "date_display": pd.to_datetime(row['timestamp']).strftime('%d %b %Y, %H:%M'),
+                    "ticker": str(row['ticker']) if pd.notna(row['ticker']) else "-",
+                    "title": title,
+                    "matched_keywords": [],
+                    "primary_category": "General",
+                    "primary_icon": "📰",
+                    "highlight_positions": [],
                     "sentiment_label": row.get('sentiment_label', 'Netral'),
                     "sentiment_score": float(row['sentiment_score']) if pd.notna(row.get('sentiment_score')) else 0.0,
                     "source": source,

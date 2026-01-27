@@ -22,6 +22,11 @@ export interface TickerCount {
     count: number;
 }
 
+export interface PaginatedNewsResponse {
+    items: NewsItem[];
+    total: number;
+}
+
 /**
  * News API client
  */
@@ -34,18 +39,49 @@ export const newsApi = {
         startDate?: string,
         endDate?: string,
         sentiment: string = "All",
-        source: string = "All"
+        source: string = "All",
+        allTime: boolean = false
     ): Promise<NewsItem[]> => {
         const params = buildParams({
             ticker: ticker !== 'All' ? ticker : undefined,
             start_date: sanitizeDate(startDate),
             end_date: sanitizeDate(endDate),
             sentiment,
-            source
+            source,
+            all_time: allTime ? true : undefined
         });
 
         const response = await fetch(`${API_BASE_URL}/api/news?${params}`);
         return await handleResponse(response, []);
+    },
+
+    /**
+     * Get paginated news articles with total count
+     */
+    getNewsPage: async (
+        ticker?: string,
+        startDate?: string,
+        endDate?: string,
+        sentiment: string = "All",
+        source: string = "All",
+        allTime: boolean = false,
+        limit: number = 100,
+        offset: number = 0
+    ): Promise<PaginatedNewsResponse> => {
+        const params = buildParams({
+            ticker: ticker !== 'All' ? ticker : undefined,
+            start_date: sanitizeDate(startDate),
+            end_date: sanitizeDate(endDate),
+            sentiment,
+            source,
+            all_time: allTime ? true : undefined,
+            include_total: true,
+            limit,
+            offset
+        });
+
+        const response = await fetch(`${API_BASE_URL}/api/news?${params}`);
+        return await handleResponse<PaginatedNewsResponse>(response, { items: [], total: 0 });
     },
 
     /**

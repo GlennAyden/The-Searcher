@@ -14,6 +14,10 @@ export const useNewsLibrary = ({ ticker, startDate, endDate }: UseNewsLibraryPro
     const [tickerFilter, setTickerFilter] = useState(ticker === 'All' ? '' : ticker);
     const [news, setNews] = useState<NewsItem[]>([]);
     const [loading, setLoading] = useState(true);
+    const [timeRange, setTimeRange] = useState<'30d' | 'all'>('30d');
+    const [page, setPage] = useState(1);
+    const [totalCount, setTotalCount] = useState(0);
+    const pageSize = 100;
 
     // Sync local ticker filter when global ticker changes, but carefully
     useEffect(() => {
@@ -26,6 +30,10 @@ export const useNewsLibrary = ({ ticker, startDate, endDate }: UseNewsLibraryPro
         }
     }, [ticker]);
 
+    useEffect(() => {
+        setPage(1);
+    }, [tickerFilter, sentimentFilter, sourceFilter, timeRange, startDate, endDate]);
+
     const fetchNews = useCallback(async () => {
         setLoading(true);
         try {
@@ -33,20 +41,26 @@ export const useNewsLibrary = ({ ticker, startDate, endDate }: UseNewsLibraryPro
             // But if tickerFilter is empty string, we treat as All
             const queryTicker = tickerFilter && tickerFilter.trim() !== '' ? tickerFilter : undefined;
 
-            const newsData = await newsService.getNews(
+            const newsData = await newsService.getNewsPage(
                 queryTicker,
                 startDate,
                 endDate,
                 sentimentFilter,
-                sourceFilter
+                sourceFilter,
+                timeRange === 'all',
+                pageSize,
+                (page - 1) * pageSize
             );
-            setNews(newsData);
+            setNews(newsData.items);
+            setTotalCount(newsData.total);
         } catch (error) {
             console.error('Failed to fetch news library data:', error);
+            setNews([]);
+            setTotalCount(0);
         } finally {
             setLoading(false);
         }
-    }, [tickerFilter, startDate, endDate, sentimentFilter, sourceFilter]);
+    }, [tickerFilter, startDate, endDate, sentimentFilter, sourceFilter, timeRange, page, pageSize]);
 
     useEffect(() => {
         // debounce fetch if ticker is typing? Actually keeping it simple for now, 
@@ -70,6 +84,13 @@ export const useNewsLibrary = ({ ticker, startDate, endDate }: UseNewsLibraryPro
         setSourceFilter,
         tickerFilter,
         setTickerFilter,
+        timeRange,
+        setTimeRange,
+        page,
+        setPage,
+        totalCount,
+        totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
+        pageSize,
         refresh: fetchNews
     };
 };

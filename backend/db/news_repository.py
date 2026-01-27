@@ -103,6 +103,11 @@ class NewsRepository(BaseRepository):
                 base_query += " AND date(timestamp) <= date(?)"
                 params.append(str(end_date))
 
+            # Sentiment Filter
+            if sentiment_label:
+                base_query += " AND sentiment_label = ?"
+                params.append(sentiment_label)
+
             # Source Filter (Based on domain parsing)
             if source and source != "All":
                 if source == "CNBC":
@@ -129,6 +134,55 @@ class NewsRepository(BaseRepository):
         except Exception as e:
             print(f"[!] Error fetching news from DB: {e}")
             return pd.DataFrame()
+        finally:
+            conn.close()
+
+    def count_news(
+        self,
+        ticker: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        sentiment_label: Optional[str] = None,
+        source: Optional[str] = None
+    ) -> int:
+        """
+        Count news rows for pagination with filters.
+        """
+        conn = self._get_conn()
+        try:
+            base_query = "SELECT COUNT(*) FROM news WHERE 1=1"
+            params = []
+
+            if ticker and ticker != "^JKSE":
+                base_query += " AND ticker LIKE ?"
+                params.append(f"%{ticker}%")
+
+            if start_date:
+                base_query += " AND date(timestamp) >= date(?)"
+                params.append(str(start_date))
+
+            if end_date:
+                base_query += " AND date(timestamp) <= date(?)"
+                params.append(str(end_date))
+
+            if sentiment_label:
+                base_query += " AND sentiment_label = ?"
+                params.append(sentiment_label)
+
+            if source and source != "All":
+                if source == "CNBC":
+                    base_query += " AND url LIKE '%cnbc.com%'"
+                elif source == "EmitenNews":
+                    base_query += " AND url LIKE '%emitennews.com%'"
+                elif source == "IDX":
+                    base_query += " AND (url LIKE '%idx.co.id%' OR source = 'IDX')"
+
+            cursor = conn.execute(base_query, params)
+            row = cursor.fetchone()
+            return int(row[0]) if row else 0
+        except Exception as e:
+            print(f"[!] Error counting news: {e}")
+            return 0
         finally:
             conn.close()
     
